@@ -1,0 +1,27 @@
+{
+  "name": "prime-slot",
+  "version": "0.1.0",
+  "private": true,
+  "scripts": {
+    "dev": "next dev",
+    "build": "next build",
+    "start": "next start",
+    "lint": "eslint"
+  },
+  "dependencies": {
+    "apexcharts": "^5.3.6",
+    "bootstrap": "^5.3.8",
+    "firebase": "^12.5.0",
+    "firebase-admin": "^13.6.0",
+    "git-filter-repo": "^0.0.30",
+    "next": "16.0.1",
+    "react": "19.2.0",
+    "react-apexcharts": "^1.8.0",
+    "react-dom": "19.2.0",
+    "xlsx": "^0.18.5"
+  },
+  "devDependencies": {
+    "eslint": "^9",
+    "eslint-config-next": "16.0.1"
+  }
+}
