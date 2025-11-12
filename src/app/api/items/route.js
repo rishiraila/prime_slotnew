@@ -1,13 +1,13 @@
 // src/app/api/items/route.js
 import { NextResponse } from 'next/server';
-import { getFirebase } from '@/lib/firebaseAdmin';
+import { getAdminApp } from '@/lib/firebaseAdmin';
 
 export const runtime = 'nodejs'; // ensure Node (not Edge) for Admin SDK
 
 // GET /api/items
 export async function GET() {
   try {
-    const { db } = getFirebase();
+    const { rtdb: db } = getAdminApp();
     const snap = await db.ref('items').get();
     const val = snap.val() || {};
     const items = Object.entries(val).map(([id, data]) => ({ id, ...data }));
@@ -25,7 +25,7 @@ export async function POST(request) {
     if (!body?.name) {
       return NextResponse.json({ error: 'name is required' }, { status: 400 });
     }
-    const { db } = getFirebase();
+    const { rtdb: db } = getAdminApp();
     const ref = db.ref('items').push();
     const data = {
       name: body.name,

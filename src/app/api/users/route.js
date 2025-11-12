@@ -1,7 +1,7 @@
 export const runtime = 'nodejs';
 
 import { NextResponse } from 'next/server';
-import { getFirebase } from '@/lib/firebaseAdmin';
+import { getAdminApp } from '@/lib/firebaseAdmin';
 
 // Verify Firebase ID Token from Authorization Header
 async function verifyToken(request) {
@@ -9,8 +9,8 @@ async function verifyToken(request) {
   if (!header || !header.startsWith('Bearer ')) return null;
   const token = header.split('Bearer ')[1];
   try {
-    const { auth } = getFirebase();
-    return await auth.verifyIdToken(token);
+    const { adminAuth } = getAdminApp();
+    return await adminAuth.verifyIdToken(token);
   } catch {
     return null;
   }
@@ -19,7 +19,7 @@ async function verifyToken(request) {
 // Check if requester is admin
 async function isAdmin(uid) {
   try {
-    const { db } = getFirebase();
+    const { rtdb: db } = getAdminApp();
     const snap = await db.ref(`users/${uid}`).get();
     if (!snap.exists()) return false;
     const user = snap.val();
@@ -34,7 +34,7 @@ export async function GET(request) {
   const decodedUser = await verifyToken(request);
   if (!decodedUser) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
 
-  const { db } = getFirebase();
+  const { rtdb: db } = getAdminApp();
   const snap = await db.ref('users').get();
   const val = snap.val() || {};
   const users = Object.entries(val).map(([id, data]) => ({ id, ...data }));
@@ -68,10 +68,10 @@ export async function POST(request) {
         return NextResponse.json({ error: 'name, email, userType required' }, { status: 400 });
       }
 
-      const { auth, bucket, db } = getFirebase();
+      const { adminAuth, bucket, rtdb: db } = getAdminApp();
 
       // Create Firebase Auth user first to get uid
-      const userRecord = await auth.createUser({ email, displayName: name });
+      const userRecord = await adminAuth.createUser({ email, displayName: name });
 
       // Optional: upload file if provided
       if (file && typeof file === 'object' && 'arrayBuffer' in file) {
@@ -125,8 +125,8 @@ export async function POST(request) {
         return NextResponse.json({ error: 'name, email, userType required' }, { status: 400 });
       }
 
-      const { auth, db } = getFirebase();
-      const userRecord = await auth.createUser({ email, displayName: name });
+      const { adminAuth, rtdb: db } = getAdminApp();
+      const userRecord = await adminAuth.createUser({ email, displayName: name });
 
       const data = {
         name,
