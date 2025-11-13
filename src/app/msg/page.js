@@ -74,47 +74,73 @@ export default function MsgOtpPage() {
     document.body.appendChild(s);
   }, []);
 
-  function handleSendOtp() {
-    setStatus(null);
-    const identifier = phone.trim();
-    if (!identifier) return setStatus({ ok: false, message: "Enter phone (country code + number, e.g. 9199...)" });
-    if (!loaded || typeof window.sendOtp !== "function") {
-      return setStatus({ ok: false, message: "Widget not ready. Wait a moment." });
+ async function handleSendOtp() {
+  setStatus(null);
+  const identifier = phone.trim();
+  if (!identifier) return setStatus({ ok: false, message: "Enter phone (with country code, e.g. 9199...)" });
+  if (!loaded || typeof window.sendOtp !== "function") {
+    return setStatus({ ok: false, message: "Widget not ready. Wait a moment." });
+  }
+
+  // 1) Ask server whether this phone exists
+  try {
+    setStatus({ ok: null, message: "Checking phone in database..." });
+    const res = await fetch("/api/check-user", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ phone: identifier }),
+    });
+
+    const json = await res.json();
+    if (!res.ok || !json.ok) {
+      // server-side error (not found or misconfigured)
+      console.warn("check-user failed:", res.status, json);
+      return setStatus({ ok: false, message: json?.message || "Phone check failed" });
     }
 
+    if (!json.exists) {
+      // phone not in DB — don't send OTP
+      return setStatus({ ok: false, message: "Phone not registered. Please sign up first." });
+    }
+
+    // phone exists — proceed to send OTP
+    setStatus({ ok: true, message: "Phone found — sending OTP..." });
+  } catch (err) {
+    console.error("handleSendOtp check-user error:", err);
+    return setStatus({ ok: false, message: "Failed to check phone in DB: " + String(err) });
+  }
+
+  // 2) Send OTP via widget (unchanged)
+  try {
     setReqId(null);
     setOtp("");
+    setIsDemo(false);
 
-    try {
-      window.sendOtp(
-        identifier,
-        (data) => {
-          try {
-            console.log("sendOtp success:", data);
-            setStatus({ ok: true, message: "OTP sent. Check device." });
-            // store possible reqId
-            const id = data?.reqId || data?.request_id || data?.requestId || data?.req_id;
-            if (id) setReqId(id);
-          } catch (inner) {
-            console.error("sendOtp success handler error:", inner);
-            setStatus({ ok: false, message: "sendOtp success handling error" });
-          }
-        },
-        (err) => {
-          try {
-            console.error("sendOtp error:", err);
-            setStatus({ ok: false, message: err?.message || JSON.stringify(err) });
-          } catch (inner) {
-            console.error("sendOtp error handler threw:", inner);
-            setStatus({ ok: false, message: "sendOtp failed" });
-          }
+    window.sendOtp(
+      identifier,
+      (data) => {
+        console.log("sendOtp success:", data);
+        setStatus({ ok: true, message: "OTP sent. Check device." });
+
+        const id = data?.reqId || data?.request_id || data?.requestId || data?.req_id || null;
+        if (id) setReqId(id);
+
+        if (data?.isDemo || data?.demo || data?.demo_pin || data?.otp_pin) {
+          setIsDemo(true);
+          setStatus((s) => ({ ...(s || {}), demo: data }));
         }
-      );
-    } catch (outer) {
-      console.error("window.sendOtp threw:", outer);
-      setStatus({ ok: false, message: "Failed to call sendOtp" });
-    }
+      },
+      (err) => {
+        console.error("sendOtp error:", err);
+        setStatus({ ok: false, message: err?.message || JSON.stringify(err) });
+      }
+    );
+  } catch (outer) {
+    console.error("window.sendOtp threw:", outer);
+    setStatus({ ok: false, message: "Failed to call sendOtp" });
   }
+}
+
 
   function handleRetry() {
     if (!loaded || typeof window.retryOtp !== "function") {
