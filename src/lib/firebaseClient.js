@@ -1,25 +1,23 @@
-import { initializeApp, getApps, getApp } from "firebase/app";
-import { getAuth } from "firebase/auth";
-import { getAnalytics, isSupported as analyticsIsSupported } from "firebase/analytics";
+// src/lib/firebaseClient.js
+import { initializeApp, getApps } from 'firebase/app';
+import { getAuth } from 'firebase/auth';
 
 const firebaseConfig = {
-  apiKey: "AIzaSyDqR1GfS9Wshql-msxrsDAb0ljAaRgMMt4",
-  authDomain: "prime-slot-51dbf.firebaseapp.com",
-  databaseURL: "https://prime-slot-51dbf-default-rtdb.firebaseio.com",
-  projectId: "prime-slot-51dbf",
-  storageBucket: "prime-slot-51dbf.appspot.com", // ✅ fixed
-  messagingSenderId: "603430678615",
-  appId: "1:603430678615:web:3de4862675083f4a82f312",
-  measurementId: "G-CFE2RGBXVT",
+  apiKey: process.env.NEXT_PUBLIC_FIREBASE_API_KEY || 'your_key_here',
+  authDomain: process.env.NEXT_PUBLIC_FIREBASE_AUTH_DOMAIN || 'your_auth_domain',
+  projectId: process.env.NEXT_PUBLIC_FIREBASE_PROJECT_ID || 'your_project_id',
+  appId: process.env.NEXT_PUBLIC_FIREBASE_APP_ID || 'your_app_id',
+  // optional:
+  storageBucket: process.env.NEXT_PUBLIC_FIREBASE_STORAGE_BUCKET,
+  messagingSenderId: process.env.NEXT_PUBLIC_FIREBASE_MESSAGING_SENDER_ID,
 };
 
-const app = getApps().length ? getApp() : initializeApp(firebaseConfig);
-export const auth = getAuth(app);
-
-// Optional: Analytics (browser-only)
-export let analytics = null;
-if (typeof window !== "undefined") {
-  analyticsIsSupported()
-    .then((ok) => { if (ok) analytics = getAnalytics(app); })
-    .catch(() => {});
+// Initialize app only on client
+export function initFirebaseClient() {
+  if (typeof window === 'undefined') return null;
+  if (!getApps().length) {
+    initializeApp(firebaseConfig);
+    // console.log('Firebase client app initialized');
+  }
+  return getAuth();
 }

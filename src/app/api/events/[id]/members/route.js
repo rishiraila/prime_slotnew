@@ -4,7 +4,6 @@ export const dynamic = 'force-dynamic';
 import { NextResponse } from 'next/server';
 import { cookies } from 'next/headers';
 import { adminAuth, rtdb } from '@/lib/firebaseAdmin';
-import { z } from 'zod';
 
 const COOKIE = 'admin_session';
 
@@ -17,7 +16,7 @@ async function requireSession() {
 
 function addCORS(res) {
   res.headers.set('Access-Control-Allow-Origin', '*');
-  res.headers.set('Access-Control-Allow-Methods', 'GET,PATCH,DELETE,OPTIONS');
+  res.headers.set('Access-Control-Allow-Methods', 'GET,OPTIONS');
   res.headers.set('Access-Control-Allow-Headers', 'Content-Type, Authorization');
   return res;
 }
@@ -26,38 +25,19 @@ export async function OPTIONS() {
   return addCORS(NextResponse.json({}, { status: 204 }));
 }
 
-const PatchMemberSchema = z.object({
-  name: z.string().min(1).optional(),
-  email: z.string().email().optional(),
-  mob: z.string().optional(),
-  chaptername: z.string().optional(),
-  businessman: z.string().optional(),
-  categorytype: z.string().optional(),
-  status: z.string().optional(),
-});
-
-/* ------------- PATCH /api/events/:id/members/:memberid ------------- */
-export async function PATCH(req, { params }) {
+/* -------- GET /api/events/:id/members ---------- */
+export async function GET(_req, ctx) {
   try {
     await requireSession();
-    const { id: eventId, memberid } = params;
-    const body = await req.json();
-    const updates = PatchMemberSchema.parse(body);
+    const { id: eventId } = await ctx.params;
 
-    await rtdb.ref(`/eventMembers/${eventId}/${memberid}`).update(updates);
-    return addCORS(NextResponse.json({ ok: true }));
-  } catch (e) {
-    return addCORS(NextResponse.json({ error: e.message || 'Server error' }, { status: e.status || 500 }));
-  }
-}
+    const memberIdsSnap = await rtdb.ref(`/eventMembers/${eventId}`).get();
+    if (!memberIdsSnap.exists()) return addCORS(NextResponse.json({ records: [] }));
 
-/* ------------- DELETE /api/events/:id/members/:memberid ------------- */
-export async function DELETE(_req, { params }) {
-  try {
-    await requireSession();
-    const { id: eventId, memberid } = params;
-    await rtdb.ref(`/eventMembers/${eventId}/${memberid}`).remove();
-    return addCORS(NextResponse.json({ ok: true }));
+    const memberPromises = Object.keys(memberIdsSnap.val()).map(memberId => rtdb.ref(`/members/${memberId}`).get().then(snap => ({ id: memberId, ...snap.val() })));
+    const records = await Promise.all(memberPromises);
+
+    return addCORS(NextResponse.json({ records }));
   } catch (e) {
     return addCORS(NextResponse.json({ error: e.message || 'Server error' }, { status: e.status || 500 }));
   }

@@ -15,7 +15,7 @@ export default function UsersInfoPage() {
   const fetchMembers = useCallback(async () => {
     setIsLoading(true);
     try {
-      // Fetch all members instead of event-specific members
+      // Fetch all members
       const response = await fetch('/api/members');
       if (!response.ok) throw new Error('Failed to fetch members');
       const data = await response.json();
@@ -134,8 +134,8 @@ export default function UsersInfoPage() {
                     </div>
                   </td>
                   <td>{user.email}</td>
-                  <td>{user.mob}</td>
-                  <td>{user.chaptername}</td>
+                  <td>{user.phone}</td>
+                  <td>{user.chapterName}</td>
                   <td>
                     <span className={`badge ${user.memberStatus === 'Active' ? 'bg-label-success' : user.memberStatus === 'Pending' ? 'bg-label-warning' : 'bg-label-danger'}`}>
                       {user.memberStatus}

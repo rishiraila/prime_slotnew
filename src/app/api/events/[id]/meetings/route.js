@@ -23,10 +23,11 @@ function addCORS(res) {
 }
 export async function OPTIONS() { return addCORS(NextResponse.json({}, { status: 204 })); }
 
+// validate body coming from app
 const CreateSchema = z.object({
-  aId: z.string().min(1),
-  bId: z.string().min(1),
-  scheduledAt: z.union([z.number().int().positive(), z.string().min(1)]),
+  aId: z.string().min(1),                // organizerId
+  bId: z.string().min(1),                // participantId
+  scheduledAt: z.union([z.number().int().positive(), z.string().min(1)]), // ISO or ms
   durationMin: z.number().int().positive().default(30),
   mode: z.enum(['inperson','online']).default('inperson'),
   place: z.string().optional().default(''),
@@ -41,15 +42,11 @@ const CreateSchema = z.object({
 
 const toMs = v => (typeof v === 'number' ? v : Date.parse(v));
 
-/* -------- GET /api/events/:id/meetings ---------- */
+/* -------- GET /api/events/:id/meetings?page=&pageSize=&status=&memberId= ---------- */
 export async function GET(req, ctx) {
   try {
     await requireSession();
-
-    const { id: eventId } = await ctx.params ?? {};
-    if (!eventId) {
-      return addCORS(NextResponse.json({ error: 'Missing event id in route' }, { status: 400 }));
-    }
+    const { id: eventId } = await ctx.params;
 
     const u = new URL(req.url);
     const page = Math.max(1, parseInt(u.searchParams.get('page') || '1', 10));
@@ -78,15 +75,11 @@ export async function GET(req, ctx) {
   }
 }
 
-/* -------- POST /api/events/:id/meetings ---------- */
+/* ---------------- POST /api/events/:id/meetings ---------------- */
 export async function POST(req, ctx) {
   try {
     const user = await requireSession();
-
-    const { id: eventId } = await ctx.params ?? {};
-    if (!eventId) {
-      return addCORS(NextResponse.json({ error: 'Missing event id in route' }, { status: 400 }));
-    }
+    const { id: eventId } = await ctx.params;
 
     const body = await req.json();
     const input = CreateSchema.parse(body);
@@ -104,28 +97,19 @@ export async function POST(req, ctx) {
     }
 
     // Write under /meetings/{eventId}/{meetingId}
-    const ref = await rtdb.ref(`/meetings/${eventId}`).push({
-      aId: input.aId,
-      bId: input.bId,
+    const newMeetingData = {
+      ...input,
       scheduledAt: when,
-      durationMin: input.durationMin,
-      mode: input.mode,
-      place: input.place,
-      topic: input.topic,
-      notes: input.notes,
-      status: input.status,
-      referralsGivenByA: input.referralsGivenByA,
-      referralsGivenByB: input.referralsGivenByB,
-      businessGivenByA: input.businessGivenByA,
-      businessGivenByB: input.businessGivenByB,
-      eventId,                  // <-- now guaranteed defined
+      eventId,
       createdAt: now,
       updatedAt: now,
       createdBy: user.uid || input.aId,
       outcome: '',
-    });
+    };
+    const ref = await rtdb.ref(`/meetings/${eventId}`).push(newMeetingData);
 
-    return addCORS(NextResponse.json({ id: ref.key }, { status: 201 }));
+    // Return the full created object including its new ID
+    return addCORS(NextResponse.json({ id: ref.key, ...newMeetingData }, { status: 201 }));
   } catch (e) {
     return addCORS(NextResponse.json({ error: e.message || 'Server error' }, { status: e.status || 500 }));
   }

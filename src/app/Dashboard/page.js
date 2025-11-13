@@ -8,49 +8,27 @@ import dynamic from 'next/dynamic';
 // For this example, we'll structure the code assuming it's available.
 const Chart = dynamic(() => import('react-apexcharts'), { ssr: false });
 
-const dummyEvents = [
-  {
-    id: 1,
-    title: 'Annual Tech Conference',
-    date: '2024-10-26',
-    location: 'Convention Center, New York',
-  },
-  {
-    id: 2,
-    title: 'Marketing Summit 2024',
-    date: '2024-11-15',
-    location: 'Grand Hall, London',
-  },
-  {
-    id: 3,
-    title: 'Product Launch Gala',
-    date: '2024-12-01',
-    location: 'The Waterfront, San Francisco',
-  },
-  {
-    id: 4,
-    title: 'Team Building Retreat',
-    date: '2025-01-20',
-    location: 'Mountain Resort, Aspen',
-  },
-];
-
-const dummyBookings = [
-  { id: 1, booker: "Ana Smith", booked: "John Doe", for: "Project Kickoff", avatar: "/assets/img/avatars/2.png" },
-  { id: 2, booker: "Peter Jones", booked: "Mary Jane", for: "Marketing Sync", avatar: "/assets/img/avatars/4.png" },
-  { id: 3, booker: "John Doe", booked: "Ana Smith", for: "Design Review", avatar: "/assets/img/avatars/3.png" },
-  { id: 4, booker: "Mary Jane", booked: "Peter Jones", for: "1-on-1", avatar: "/assets/img/avatars/5.png" },
-];
-
-const dummyMembers = [
-  { id: 1, name: "John Doe", status: "Available", avatar: "/assets/img/avatars/3.png" },
-  { id: 2, name: "Mary Jane", status: "In a meeting", avatar: "/assets/img/avatars/5.png" },
-  { id: 3, name: "Peter Jones", status: "Available", avatar: "/assets/img/avatars/4.png" },
-  { id: 4, name: "Ana Smith", status: "Away", avatar: "/assets/img/avatars/2.png" },
-];
-
 export default function DashboardPage() {
   const router = useRouter();
+  const [events, setEvents] = useState([]);
+  const [members, setMembers] = useState({});
+  const [meetings, setMeetings] = useState([]);
+  const [stats, setStats] = useState({
+    totalAppointments: 0,
+    activeMembers: 0,
+    upcomingEvents: 0,
+    pendingRequests: 0
+  });
+  const [chartData, setChartData] = useState({
+    series: [{ name: 'Appointments', data: [] }],
+    options: {
+      chart: { height: 280, type: 'line', toolbar: { show: false } },
+      stroke: { curve: 'smooth', width: 3, colors: ['#696cff'] },
+      xaxis: { categories: ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'] },
+      yaxis: { labels: { style: { colors: '#6f6b7d', fontSize: '13px', fontFamily: 'Inter' } } },
+      tooltip: { enabled: true, theme: 'dark' }
+    }
+  });
 
   useEffect(() => {
     const checkAuth = async () => {
@@ -65,6 +43,63 @@ export default function DashboardPage() {
     };
     checkAuth();
   }, [router]);
+
+  useEffect(() => {
+    const fetchData = async () => {
+      try {
+        const [eventsRes, membersRes, meetingsRes] = await Promise.all([
+          fetch('/api/events'),
+          fetch('/api/members'),
+          fetch('/api/meetings')
+        ]);
+
+        const eventsData = eventsRes.ok ? await eventsRes.json() : { records: [] };
+        const membersData = membersRes.ok ? await membersRes.json() : { records: [] };
+        const meetingsData = meetingsRes.ok ? await meetingsRes.json() : { records: [] };
+
+        const eventsList = eventsData.records || [];
+        const membersList = membersData.records || [];
+        const meetingsList = meetingsData.records || [];
+
+        const membersMap = {};
+        membersList.forEach(m => membersMap[m.id] = m);
+
+        setEvents(eventsList);
+        setMembers(membersMap);
+        setMeetings(meetingsList);
+
+        // Compute stats
+        const now = Date.now();
+        const upcomingEventsCount = eventsList.filter(e => e.date >= now).length;
+        const activeMembersCount = membersList.filter(m => m.memberStatus === 'Active').length;
+        const totalAppointments = meetingsList.length;
+        const pendingRequests = meetingsList.filter(m => m.status === 'scheduled' || m.status === 'pending').length;
+
+        setStats({
+          totalAppointments,
+          activeMembers: activeMembersCount,
+          upcomingEvents: upcomingEventsCount,
+          pendingRequests
+        });
+
+        // Compute chart data: appointments per month
+        const monthlyCounts = Array(12).fill(0);
+        meetingsList.forEach(m => {
+          const date = new Date(m.scheduledAt);
+          const month = date.getMonth();
+          monthlyCounts[month]++;
+        });
+        setChartData(prev => ({
+          ...prev,
+          series: [{ ...prev.series[0], data: monthlyCounts }]
+        }));
+
+      } catch (error) {
+        console.error('Error fetching data:', error);
+      }
+    };
+    fetchData();
+  }, []);
 
   // Chart data for Appointments Overview
   const appointmentChartData = {
@@ -151,7 +186,7 @@ export default function DashboardPage() {
                     </div>
                     <div className="ms-3">
                       <div className="small mb-1">Total Appointments</div>
-                      <h5 className="mb-0">1.2k</h5>
+                      <h5 className="mb-0">{stats.totalAppointments}</h5>
                     </div>
                   </div>
                 </div>
@@ -164,7 +199,7 @@ export default function DashboardPage() {
                     </div>
                     <div className="ms-3">
                       <div className="small mb-1">Active Members</div>
-                      <h5 className="mb-0">458</h5>
+                      <h5 className="mb-0">{stats.activeMembers}</h5>
                     </div>
                   </div>
                 </div>
@@ -177,7 +212,7 @@ export default function DashboardPage() {
                     </div>
                     <div className="ms-3">
                       <div className="small mb-1">Upcoming Events</div>
-                      <h5 className="mb-0">4</h5>
+                      <h5 className="mb-0">{stats.upcomingEvents}</h5>
                     </div>
                   </div>
                 </div>
@@ -190,7 +225,7 @@ export default function DashboardPage() {
                     </div>
                     <div className="ms-3">
                       <div className="small mb-1">Pending Requests</div>
-                      <h5 className="mb-0">12</h5>
+                      <h5 className="mb-0">{stats.pendingRequests}</h5>
                     </div>
                   </div>
                 </div>
@@ -215,7 +250,7 @@ export default function DashboardPage() {
                   </tr>
                 </thead>
                 <tbody className="table-border-bottom-0">
-                  {dummyEvents.slice(0, 4).map(event => (
+                  {events.slice(0, 4).map(event => (
                     <tr key={event.id}>
                       <td>
                         <span className="fw-medium">{event.title}</span>
@@ -239,22 +274,22 @@ export default function DashboardPage() {
         <div className="col-lg-4 col-md-6">
           <div className="card h-100">
             <div className="card-header d-flex align-items-center justify-content-between">
-              <h5 className="card-title m-0 me-2">Recent Bookings</h5>
+              <h5 className="card-title m-0 me-2">Recent Meetings</h5>
             </div>
             <div className="card-body">
               <ul className="list-unstyled mb-0">
-                {dummyBookings.map((booking, index) => (
-                  <li key={booking.id} className={`d-flex ${index < 3 ? 'mb-4' : ''}`}>
+                {meetings.slice(0, 4).map((meeting, index) => (
+                  <li key={meeting.id} className={`d-flex ${index < 3 ? 'mb-4' : ''}`}>
                     <div className="avatar flex-shrink-0 me-3">
-                      <Image src={booking.avatar} alt={booking.booker} width={38} height={38} className="rounded-circle" />
+                      <Image src={members[meeting.aId]?.avatar || '/assets/img/avatars/1.png'} alt={members[meeting.aId]?.fullName || 'Unknown'} width={38} height={38} className="rounded-circle" />
                     </div>
                     <div className="d-flex w-100 flex-wrap align-items-center justify-content-between gap-2">
                       <div className="me-2">
-                        <h6 className="mb-0">{booking.booker}</h6>
-                        <small className="text-muted">booked {booking.booked}</small>
+                        <h6 className="mb-0">{members[meeting.aId]?.fullName || 'Unknown'}</h6>
+                        <small className="text-muted">booked {members[meeting.bId]?.fullName || 'Unknown'}</small>
                       </div>
                       <div className="user-progress">
-                        <small className="fw-medium">{booking.for}</small>
+                        <small className="fw-medium">{meeting.topic || 'Meeting'}</small>
                       </div>
                     </div>
                   </li>
@@ -271,7 +306,7 @@ export default function DashboardPage() {
               <h5 className="card-title mb-0">Appointments Overview</h5>
             </div>
             <div className="card-body">
-              <Chart options={appointmentChartData.options} series={appointmentChartData.series} type="line" height={280} />
+              <Chart options={chartData.options} series={chartData.series} type="line" height={280} />
             </div>
           </div>
         </div>
@@ -284,17 +319,17 @@ export default function DashboardPage() {
             </div>
             <div className="card-body">
               <ul className="list-unstyled mb-0">
-                {dummyMembers.map((member, idx) => (
+                {Object.values(members).slice(0, 4).map((member, idx) => (
                   <li key={member.id} className={`d-flex align-items-center ${idx < 3 ? "mb-4" : ""}`}>
                     <div className="avatar flex-shrink-0 me-3">
-                      <Image src={member.avatar} alt={member.name} width={38} height={38} className="rounded-circle" />
+                      <Image src={member.avatar || '/assets/img/avatars/1.png'} alt={member.fullName} width={38} height={38} className="rounded-circle" />
                     </div>
                     <div className="d-flex w-100 flex-wrap align-items-center justify-content-between gap-2">
                       <div className="me-2">
-                        <h6 className="mb-0">{member.name}</h6>
+                        <h6 className="mb-0">{member.fullName}</h6>
                       </div>
                       <div className="user-progress">
-                        <small className={`text-${member.status === 'Available' ? 'success' : 'warning'}`}>{member.status}</small>
+                        <small className={`text-${member.memberStatus === 'Active' ? 'success' : 'warning'}`}>{member.memberStatus}</small>
                       </div>
                     </div>
                   </li>
