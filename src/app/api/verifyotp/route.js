@@ -1,4 +1,4 @@
-// src/app/api/verfiyotp/route.js
+// src/app/api/verifyotp/route.js
 import { NextResponse } from "next/server";
 
 export async function POST(request) {
@@ -14,6 +14,7 @@ export async function POST(request) {
       return NextResponse.json({ success: false, message: "Server misconfigured: MSG91_AUTHKEY missing" }, { status: 500 });
     }
 
+    // Call MSG91 verifyAccessToken
     const resp = await fetch("https://control.msg91.com/api/v5/widget/verifyAccessToken", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
@@ -25,14 +26,14 @@ export async function POST(request) {
 
     const data = await resp.json();
 
-    // MSG91 returns type/status. Accept both shapes.
-    const verified = resp.ok && (data.type === "success" || data.status === "success");
+    // Treat success when MSG91 returns type/status success or HTTP 200
+    const verified = resp.ok && (data?.type === "success" || data?.status === "success" || data?.success === true);
 
     if (verified) {
-      // data may contain user info — adapt to your needs
+      // data may include user details, requestId, companyId, etc.
       return NextResponse.json({ success: true, message: "Verified", data: data.data ?? data });
     } else {
-      return NextResponse.json({ success: false, message: data.message || "Invalid access token", raw: data }, { status: 400 });
+      return NextResponse.json({ success: false, message: data?.message || "Invalid access token", raw: data }, { status: 400 });
     }
   } catch (err) {
     console.error("verify-otp error:", err);

@@ -9,14 +9,13 @@ export default function MsgOtpPage() {
   const [otp, setOtp] = useState("");
   const [status, setStatus] = useState(null);
   const [reqId, setReqId] = useState(null);
-  const [isDemo, setIsDemo] = useState(false);
 
-  // Replace with your real values from MSG91 dashboard
+  // ---------- Replace these with your MSG91 widget values ----------
   const WIDGET_ID = "356b67656c53363533323930";
   const TOKEN_AUTH = "417046TmuGjcKYAXo6915aa30P1";
+  // ------------------------------------------------------------------
 
   useEffect(() => {
-    // load script only once
     if (window.MSG91_OTP_LOADED) {
       setLoaded(true);
       return;
@@ -25,6 +24,7 @@ export default function MsgOtpPage() {
     const s = document.createElement("script");
     s.src = "https://verify.msg91.com/otp-provider.js";
     s.async = true;
+
     s.onload = () => {
       window.MSG91_OTP_LOADED = true;
 
@@ -32,14 +32,22 @@ export default function MsgOtpPage() {
         widgetId: WIDGET_ID,
         tokenAuth: TOKEN_AUTH,
         identifier: "",
-        exposeMethods: true,     // IMPORTANT for web custom UI
-        captchaRenderId: "",     // keep empty for local dev (prevents hCaptcha localhost warning)
+        exposeMethods: true,
+        // For local dev keep empty. For prod set a valid DOM id or enable/disable captcha in widget settings.
+        captchaRenderId: "",
         success: (data) => {
-          // Global success callback (optional)
-          console.log("MSG91 global success:", data);
+          try {
+            console.log("MSG91 global success:", data);
+          } catch (e) {
+            console.error("success callback error:", e);
+          }
         },
         failure: (err) => {
-          console.error("MSG91 global failure:", err);
+          try {
+            console.error("MSG91 global failure:", err);
+          } catch (e) {
+            console.error("failure callback error:", e);
+          }
         },
       };
 
@@ -47,6 +55,7 @@ export default function MsgOtpPage() {
         try {
           window.initSendOTP(configuration);
           setLoaded(true);
+          console.info("MSG91 initSendOTP completed.");
         } catch (e) {
           console.error("initSendOTP error:", e);
           setStatus({ ok: false, message: "Widget init error: " + String(e) });
@@ -56,6 +65,7 @@ export default function MsgOtpPage() {
         setStatus({ ok: false, message: "Widget script loaded but initSendOTP missing" });
       }
     };
+
     s.onerror = (e) => {
       console.error("Failed to load MSG91 script", e);
       setStatus({ ok: false, message: "Failed to load MSG91 script" });
@@ -67,57 +77,78 @@ export default function MsgOtpPage() {
   function handleSendOtp() {
     setStatus(null);
     const identifier = phone.trim();
-    if (!identifier) return setStatus({ ok: false, message: "Enter phone (91XXXXXXXXXX)" });
+    if (!identifier) return setStatus({ ok: false, message: "Enter phone (country code + number, e.g. 9199...)" });
     if (!loaded || typeof window.sendOtp !== "function") {
       return setStatus({ ok: false, message: "Widget not ready. Wait a moment." });
     }
 
     setReqId(null);
     setOtp("");
-    setIsDemo(false);
 
-    window.sendOtp(
-      identifier,
-      (data) => {
-        // MSG91 will return data containing reqId or demo info depending on widget config
-        console.log("sendOtp success:", data);
-        setStatus({ ok: true, message: "OTP sent. Check your device." });
-
-        // store request id if present for retry/verify
-        const id = data?.reqId || data?.request_id || data?.requestId || data?.req_id;
-        if (id) setReqId(id);
-
-        // detect demo behavior; MSG91 might return that this is demo and what OTP/pin is
-        if (data?.isDemo || data?.demo || (data?.demo_pin || data?.otp_pin)) {
-          setIsDemo(true);
-          setStatus((s) => ({ ...(s || {}), demo: data }));
+    try {
+      window.sendOtp(
+        identifier,
+        (data) => {
+          try {
+            console.log("sendOtp success:", data);
+            setStatus({ ok: true, message: "OTP sent. Check device." });
+            // store possible reqId
+            const id = data?.reqId || data?.request_id || data?.requestId || data?.req_id;
+            if (id) setReqId(id);
+          } catch (inner) {
+            console.error("sendOtp success handler error:", inner);
+            setStatus({ ok: false, message: "sendOtp success handling error" });
+          }
+        },
+        (err) => {
+          try {
+            console.error("sendOtp error:", err);
+            setStatus({ ok: false, message: err?.message || JSON.stringify(err) });
+          } catch (inner) {
+            console.error("sendOtp error handler threw:", inner);
+            setStatus({ ok: false, message: "sendOtp failed" });
+          }
         }
-      },
-      (err) => {
-        console.error("sendOtp error:", err);
-        setStatus({ ok: false, message: err?.message || JSON.stringify(err) });
-      }
-    );
+      );
+    } catch (outer) {
+      console.error("window.sendOtp threw:", outer);
+      setStatus({ ok: false, message: "Failed to call sendOtp" });
+    }
   }
 
   function handleRetry() {
     if (!loaded || typeof window.retryOtp !== "function") {
       return setStatus({ ok: false, message: "retryOtp not available" });
     }
-    window.retryOtp(
-      null, // default channel (server decides)
-      (data) => {
-        console.log("retryOtp success", data);
-        setStatus({ ok: true, message: "OTP resent" });
-        const id = data?.reqId || data?.request_id || data?.requestId;
-        if (id) setReqId(id);
-      },
-      (err) => {
-        console.error("retryOtp error", err);
-        setStatus({ ok: false, message: err?.message || JSON.stringify(err) });
-      },
-      reqId || null
-    );
+    try {
+      window.retryOtp(
+        null,
+        (data) => {
+          try {
+            console.log("retryOtp success:", data);
+            setStatus({ ok: true, message: "OTP resent" });
+            const id = data?.reqId || data?.request_id || data?.requestId;
+            if (id) setReqId(id);
+          } catch (inner) {
+            console.error("retryOtp success handler error:", inner);
+            setStatus({ ok: false, message: "retry handling error" });
+          }
+        },
+        (err) => {
+          try {
+            console.error("retryOtp error:", err);
+            setStatus({ ok: false, message: err?.message || JSON.stringify(err) });
+          } catch (inner) {
+            console.error("retryOtp failure handler error:", inner);
+            setStatus({ ok: false, message: "retry failed" });
+          }
+        },
+        reqId || null
+      );
+    } catch (outer) {
+      console.error("window.retryOtp threw:", outer);
+      setStatus({ ok: false, message: "Failed to call retryOtp" });
+    }
   }
 
   function handleVerify() {
@@ -127,39 +158,61 @@ export default function MsgOtpPage() {
     }
     if (!otp) return setStatus({ ok: false, message: "Enter OTP" });
 
-    window.verifyOtp(
-      otp,
-      (data) => {
-        console.log("verifyOtp success:", data);
-        // extract access token
-        const accessToken = data?.["access-token"] || data?.access_token || data?.token || data?.accessToken;
-        if (!accessToken) {
-          setStatus({ ok: false, message: "No access token returned. Inspect console." });
-          return;
-        }
-        // send access token to server for final validation
-        verifyOnServer(accessToken);
-      },
-      (err) => {
-        console.error("verifyOtp failure:", err);
-        setStatus({ ok: false, message: err?.message || JSON.stringify(err) });
-      },
-      reqId || null
-    );
+    try {
+      window.verifyOtp(
+        otp,
+        (data) => {
+          try {
+            console.log("verifyOtp success:", data);
+            // Token can be inside data.message per MSG91 SDK
+            const accessToken =
+              data?.["access-token"] ||
+              data?.access_token ||
+              data?.token ||
+              data?.accessToken ||
+              data?.message;
+
+            if (!accessToken) {
+              setStatus({ ok: false, message: "No access token returned. Inspect console.", raw: data });
+              return;
+            }
+
+            verifyOnServer(accessToken);
+          } catch (inner) {
+            console.error("verifyOtp success handler error:", inner);
+            setStatus({ ok: false, message: "Error handling verification response" });
+          }
+        },
+        (err) => {
+          try {
+            console.error("verifyOtp failure:", err);
+            setStatus({ ok: false, message: err?.message || JSON.stringify(err) });
+          } catch (inner) {
+            console.error("verify failure handler error:", inner);
+            setStatus({ ok: false, message: "Verification failed" });
+          }
+        },
+        reqId || null
+      );
+    } catch (outer) {
+      console.error("window.verifyOtp threw:", outer);
+      setStatus({ ok: false, message: "Failed to call verifyOtp" });
+    }
   }
 
   async function verifyOnServer(accessToken) {
     setStatus({ ok: null, message: "Verifying on server..." });
     try {
-      const res = await fetch("/api/verfiyotp", {
+      const res = await fetch("/api/verifyotp", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ accessToken }),
       });
       const json = await res.json();
+
       if (res.ok && json.success) {
         setStatus({ ok: true, message: "OTP verified — login success", data: json.data ?? json });
-        // TODO: create session / set cookie / redirect user
+        // TODO: set session cookie or redirect user here
       } else {
         console.warn("Server verify failed:", json);
         setStatus({ ok: false, message: json.message || "Server verification failed", raw: json });
@@ -171,12 +224,12 @@ export default function MsgOtpPage() {
   }
 
   return (
-    <div style={{ padding: 18, maxWidth: 560 }}>
+    <div style={{ padding: 18, maxWidth: 640 }}>
       <h2>Login with OTP (MSG91 widget)</h2>
 
       <div style={{ marginBottom: 8 }}>
-        <label>Mobile number (with country code, e.g. 91XXXXXXXXXX)</label>
-        <input value={phone} onChange={(e) => setPhone(e.target.value)} placeholder="91XXXXXXXXXX" style={{ width: "100%", padding: 8, marginTop: 6 }} />
+        <label>Mobile number (with country code, e.g. 9199...)</label>
+        <input value={phone} onChange={(e) => setPhone(e.target.value)} placeholder="9199XXXXXXXX" style={{ width: "100%", padding: 8, marginTop: 6 }} />
       </div>
 
       <div style={{ display: "flex", gap: 8 }}>
