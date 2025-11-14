@@ -1,18 +1,9 @@
-# TODO: Fix Meeting Request and Calendar API Issues
+# TODO: Add New Fields to Member Import
 
-## Step 1: Fix Meeting Request Endpoint Validation ✅
-- Update `src/app/api/members/[id]/meetings/request/route.js`
-- Add validation to ensure `aId` and `bId` are defined and valid before checking event membership
-- Add a check: if (!data.aId || !bId) return error
-
-## Step 2: Update Calendar Endpoint to Include Free Intervals ✅
-- Update `src/app/api/members/[id]/calendar/route.js`
-- Compute free intervals by finding gaps in busy periods within the from-to range
-- Add logic to merge busy intervals and calculate free slots
-- Update the response to include `free` array alongside `busy`
-
-## Step 3: Test the Changes ✅
-- Run the development server ✅ (running on http://localhost:3001)
-- Test the POST /api/members/{memberRecipient}/meetings/request endpoint ✅ (validation added)
-- Test the GET /api/members/{memberRecipient}/calendar endpoint ✅ (now returns free intervals)
-- Verify that errors are resolved and free intervals are returned ✅
+## Steps to Complete
+- [x] Update RowSchema in `src/app/api/events/[id]/members/import/route.js` to include new optional fields: businessName, region, city, trafficLight, userProfile as strings.
+- [x] Update HEADER_MAP in the same file to map common column header variations for the new fields (e.g., "Business Name" -> businessName, "Region" -> region, etc.).
+- [x] In the profile object creation within the POST handler, extract and include the new fields from rawObj.
+- [x] Verify that createMember and updateMember functions save the new fields to RTDB (no code changes needed, as they spread the profile object).
+- [x] Test the import functionality with a sample Excel file containing the new columns.
+- [x] Verify that imported members have the new fields in RTDB and are returned by `/api/me`.

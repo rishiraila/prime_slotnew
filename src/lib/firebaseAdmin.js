@@ -1,7 +1,11 @@
-import { getApps, getApp, initializeApp, cert } from 'firebase-admin/app'
-import { getAuth as getAdminAuth } from 'firebase-admin/auth'
-import { getDatabase } from 'firebase-admin/database'
+import { getApps, getApp, initializeApp, cert } from 'firebase-admin/app';
+import { getAuth as getAdminAuth } from 'firebase-admin/auth';
+import { getDatabase } from 'firebase-admin/database';
+import { getStorage } from 'firebase-admin/storage';
 
+// ------------------------------
+// Initialize Firebase Admin App
+// ------------------------------
 const app =
   getApps().length
     ? getApp()
@@ -13,11 +17,15 @@ const app =
         }),
         databaseURL: "https://prime-slot-51dbf-default-rtdb.firebaseio.com",
         storageBucket: "prime-slot-51dbf.appspot.com",
-      })
+      });
 
-export const adminAuth = getAdminAuth(app)
-export const rtdb = getDatabase(app)
+// ------------------------------
+// Exports
+// ------------------------------
+export const adminAuth = getAdminAuth(app);
+export const rtdb = getDatabase(app);
+export const storage = getStorage(app); // <-- FIXED: now app exists
 
 export function getAdminApp() {
-  return { adminApp: app, adminAuth, rtdb }
+  return { adminApp: app, adminAuth, rtdb, storage };
 }

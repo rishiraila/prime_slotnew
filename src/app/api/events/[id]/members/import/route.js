@@ -34,6 +34,11 @@ const RowSchema = z.object({
   chapterName: z.string().optional().nullable(),
   memberStatus: z.string().optional().nullable(),
   businessCategory: z.string().optional().nullable(),
+  businessName: z.string().optional().nullable(),
+  region: z.string().optional().nullable(),
+  city: z.string().optional().nullable(),
+  trafficLight: z.string().optional().nullable(),
+  profileImage: z.string().optional().nullable(),
 });
 
 const HEADER_MAP = {
@@ -43,6 +48,11 @@ const HEADER_MAP = {
   'chapter':'chapterName','chapter name':'chapterName',
   'status':'memberStatus','membership status':'memberStatus',
   'category':'businessCategory','business category':'businessCategory',
+  'business name':'businessName','business':'businessName',
+  'region':'region',
+  'city':'city',
+  'traffic light':'trafficLight','traffic':'trafficLight',
+  'user profile':'profileImage','profile':'profileImage','profile image':'profileImage','user profile image':'profileImage',
 };
 const normHeaders = (arr)=>arr.map(h=>HEADER_MAP[String(h||'').trim().toLowerCase()]||String(h||'').trim());
 const rowToObj = (headers,row)=>headers.reduce((o,k,i)=>(k?(o[k]=row[i]??row[k],o):o),{});
@@ -131,6 +141,11 @@ export async function POST(req, ctx) {
           chapterName: rawObj.chapterName || rawObj.chapter || null,
           memberStatus: rawObj.memberStatus || rawObj.status || null,
           businessCategory: rawObj.businessCategory || rawObj.category || null,
+          businessName: rawObj.businessName || null,
+          region: rawObj.region || null,
+          city: rawObj.city || null,
+          trafficLight: rawObj.trafficLight || null,
+          profileImage: rawObj.profileImage || null,
         });
 
         let memberId = await findExistingMemberId(profile);
