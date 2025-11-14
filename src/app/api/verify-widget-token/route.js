@@ -6,7 +6,8 @@ import { NextResponse } from "next/server";
 import jwt from "jsonwebtoken";
 import { rtdb } from "@/lib/firebaseAdmin";
 
-const MSG91_VERIFY_URL = "https://control.msg91.com/api/v5/widget/verifyAccessToken";
+const MSG91_VERIFY_URL =
+  "https://control.msg91.com/api/v5/widget/verifyAccessToken";
 
 // ====== WARNING: Hardcoded authkey below. Do NOT commit to public repos. ======
 const MSG91_AUTHKEY = "417046AkzbTCai3m68c9391bP1";
@@ -148,7 +149,11 @@ export async function POST(request) {
     } else data = text;
 
     // --- helpful server-side logging for debugging invalid access-token issues ---
-    console.log("MSG91 /verifyAccessToken reply:", { status: resp.status, contentType, data });
+    console.log("MSG91 /verifyAccessToken reply:", {
+      status: resp.status,
+      contentType,
+      data,
+    });
     // ---------------------------------------------------------------------------
 
     if (!resp.ok) {
@@ -204,7 +209,7 @@ export async function POST(request) {
         )
       );
 
-    const JWT_SECRET = process.env.JWT_SECRET;
+    const JWT_SECRET = "MY_SUPER_SECRET_KEY_123";
     const maxAge = Number(process.env.JWT_MAX_AGE || 60 * 60 * 24 * 7);
 
     const responseBody = {
@@ -214,14 +219,22 @@ export async function POST(request) {
       member: { id: matched.id, ...(matched.member || {}) },
     };
 
-    if (!JWT_SECRET) return addCORS(NextResponse.json(responseBody, { status: 200 }));
+    if (!JWT_SECRET)
+      return addCORS(NextResponse.json(responseBody, { status: 200 }));
 
     const token = jwt.sign(
-      { sub: matched.id, provider: "msg91-widget" },
+      {
+        sub: matched.id, // member ID
+        phone: matched.storedDigits,
+        provider: "msg91",
+      },
       JWT_SECRET,
-      { expiresIn: maxAge }
+      { expiresIn: "7d" }
     );
-    const resOut = NextResponse.json({ ...responseBody, token }, { status: 200 });
+    const resOut = NextResponse.json(
+      { ...responseBody, token },
+      { status: 200 }
+    );
     resOut.cookies.set("session", token, {
       httpOnly: true,
       path: "/",
