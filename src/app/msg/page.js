@@ -9,6 +9,7 @@ export default function MsgOtpPage() {
   const [otp, setOtp] = useState("");
   const [status, setStatus] = useState(null);
   const [reqId, setReqId] = useState(null);
+  const [isDemo, setIsDemo] = useState(false);
 
   // ---------- Replace these with your MSG91 widget values ----------
   const WIDGET_ID = "356b67656c53363533323930";
@@ -16,6 +17,8 @@ export default function MsgOtpPage() {
   // ------------------------------------------------------------------
 
   useEffect(() => {
+    if (typeof window === "undefined") return;
+
     if (window.MSG91_OTP_LOADED) {
       setLoaded(true);
       return;
@@ -33,7 +36,6 @@ export default function MsgOtpPage() {
         tokenAuth: TOKEN_AUTH,
         identifier: "",
         exposeMethods: true,
-        // For local dev keep empty. For prod set a valid DOM id or enable/disable captcha in widget settings.
         captchaRenderId: "",
         success: (data) => {
           try {
@@ -51,6 +53,7 @@ export default function MsgOtpPage() {
         },
       };
 
+      // initSendOTP is provided by the widget script
       if (typeof window.initSendOTP === "function") {
         try {
           window.initSendOTP(configuration);
@@ -72,75 +75,85 @@ export default function MsgOtpPage() {
     };
 
     document.body.appendChild(s);
+
+    // cleanup if component unmounts
+    return () => {
+      // don't remove global script to avoid reload in same session
+    };
   }, []);
 
- async function handleSendOtp() {
-  setStatus(null);
-  const identifier = phone.trim();
-  if (!identifier) return setStatus({ ok: false, message: "Enter phone (with country code, e.g. 9199...)" });
-  if (!loaded || typeof window.sendOtp !== "function") {
-    return setStatus({ ok: false, message: "Widget not ready. Wait a moment." });
-  }
+  async function handleSendOtp() {
+    setStatus(null);
+    const identifier = phone.trim();
+    if (!identifier) return setStatus({ ok: false, message: "Enter phone (with country code, e.g. 9199...)" });
 
-  // 1) Ask server whether this phone exists
-  try {
-    setStatus({ ok: null, message: "Checking phone in database..." });
-    const res = await fetch("/api/check-user", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ phone: identifier }),
-    });
+    if (!loaded) return setStatus({ ok: false, message: "Widget not ready. Wait a moment." });
 
-    const json = await res.json();
-    if (!res.ok || !json.ok) {
-      // server-side error (not found or misconfigured)
-      console.warn("check-user failed:", res.status, json);
-      return setStatus({ ok: false, message: json?.message || "Phone check failed" });
+    if (typeof window.sendOtp !== "function") {
+      return setStatus({ ok: false, message: "Widget sendOtp not available. Check widget init." });
     }
 
-    if (!json.exists) {
-      // phone not in DB — don't send OTP
-      return setStatus({ ok: false, message: "Phone not registered. Please sign up first." });
-    }
+    // 1) Ask server whether this phone exists
+    try {
+      setStatus({ ok: null, message: "Checking phone in database..." });
+      const res = await fetch("/api/check-user", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ phone: identifier }),
+      });
 
-    // phone exists — proceed to send OTP
-    setStatus({ ok: true, message: "Phone found — sending OTP..." });
-  } catch (err) {
-    console.error("handleSendOtp check-user error:", err);
-    return setStatus({ ok: false, message: "Failed to check phone in DB: " + String(err) });
-  }
-
-  // 2) Send OTP via widget (unchanged)
-  try {
-    setReqId(null);
-    setOtp("");
-    setIsDemo(false);
-
-    window.sendOtp(
-      identifier,
-      (data) => {
-        console.log("sendOtp success:", data);
-        setStatus({ ok: true, message: "OTP sent. Check device." });
-
-        const id = data?.reqId || data?.request_id || data?.requestId || data?.req_id || null;
-        if (id) setReqId(id);
-
-        if (data?.isDemo || data?.demo || data?.demo_pin || data?.otp_pin) {
-          setIsDemo(true);
-          setStatus((s) => ({ ...(s || {}), demo: data }));
-        }
-      },
-      (err) => {
-        console.error("sendOtp error:", err);
-        setStatus({ ok: false, message: err?.message || JSON.stringify(err) });
+      const json = await res.json().catch(() => ({}));
+      if (!res.ok || !json.ok) {
+        console.warn("check-user failed:", res.status, json);
+        return setStatus({ ok: false, message: json?.message || "Phone check failed" });
       }
-    );
-  } catch (outer) {
-    console.error("window.sendOtp threw:", outer);
-    setStatus({ ok: false, message: "Failed to call sendOtp" });
-  }
-}
 
+      if (!json.exists) {
+        return setStatus({ ok: false, message: "Phone not registered. Please sign up first." });
+      }
+
+      setStatus({ ok: true, message: "Phone found — sending OTP..." });
+    } catch (err) {
+      console.error("handleSendOtp check-user error:", err);
+      return setStatus({ ok: false, message: "Failed to check phone in DB: " + String(err) });
+    }
+
+    // 2) Send OTP via widget
+    try {
+      setReqId(null);
+      setOtp("");
+      setIsDemo(false);
+
+      // sendOtp(signature) : (identifier, successCallback, errorCallback, reqId?)
+      window.sendOtp(
+        identifier,
+        (data) => {
+          console.log("sendOtp success:", data);
+          setStatus({ ok: true, message: "OTP sent. Check device." });
+
+          const id = data?.reqId || data?.request_id || data?.requestId || data?.req_id || null;
+          if (id) setReqId(id);
+
+          // detect demo/sample mode from widget
+          if (data?.isDemo || data?.demo || data?.demo_pin || data?.otp_pin) {
+            setIsDemo(true);
+            setStatus((s) => ({ ...(s || {}), demo: data, message: "OTP (demo) handled — check console for demo PIN" }));
+          } else {
+            setIsDemo(false);
+          }
+        },
+        (err) => {
+          console.error("sendOtp error:", err);
+          // attempt to extract readable message
+          const msg = err?.message || err?.msg || (typeof err === "string" ? err : JSON.stringify(err));
+          setStatus({ ok: false, message: msg || "Failed to send OTP" });
+        }
+      );
+    } catch (outer) {
+      console.error("window.sendOtp threw:", outer);
+      setStatus({ ok: false, message: "Failed to call sendOtp" });
+    }
+  }
 
   function handleRetry() {
     if (!loaded || typeof window.retryOtp !== "function") {
@@ -190,7 +203,6 @@ export default function MsgOtpPage() {
         (data) => {
           try {
             console.log("verifyOtp success:", data);
-            // Token can be inside data.message per MSG91 SDK
             const accessToken =
               data?.["access-token"] ||
               data?.access_token ||
@@ -234,7 +246,7 @@ export default function MsgOtpPage() {
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ accessToken }),
       });
-      const json = await res.json();
+      const json = await res.json().catch(() => ({}));
 
       if (res.ok && json.success) {
         setStatus({ ok: true, message: "OTP verified — login success", data: json.data ?? json });
@@ -255,22 +267,45 @@ export default function MsgOtpPage() {
 
       <div style={{ marginBottom: 8 }}>
         <label>Mobile number (with country code, e.g. 9199...)</label>
-        <input value={phone} onChange={(e) => setPhone(e.target.value)} placeholder="9199XXXXXXXX" style={{ width: "100%", padding: 8, marginTop: 6 }} />
+        <input
+          value={phone}
+          onChange={(e) => setPhone(e.target.value)}
+          placeholder="9199XXXXXXXX"
+          style={{ width: "100%", padding: 8, marginTop: 6 }}
+        />
       </div>
 
       <div style={{ display: "flex", gap: 8 }}>
-        <button onClick={handleSendOtp} disabled={!loaded} style={{ padding: "8px 12px" }}>Send OTP</button>
-        <button onClick={handleRetry} disabled={!loaded || !reqId} style={{ padding: "8px 12px" }}>Resend</button>
+        <button onClick={handleSendOtp} disabled={!loaded} style={{ padding: "8px 12px" }}>
+          Send OTP
+        </button>
+        <button onClick={handleRetry} disabled={!loaded || !reqId} style={{ padding: "8px 12px" }}>
+          Resend
+        </button>
       </div>
 
       <div style={{ marginTop: 14 }}>
         <label>Enter OTP</label>
-        <input value={otp} onChange={(e) => setOtp(e.target.value)} placeholder="Enter received OTP" style={{ width: "100%", padding: 8, marginTop: 6 }} />
-        <button onClick={handleVerify} style={{ marginTop: 8, padding: "8px 12px" }}>Verify OTP</button>
+        <input
+          value={otp}
+          onChange={(e) => setOtp(e.target.value)}
+          placeholder="Enter received OTP"
+          style={{ width: "100%", padding: 8, marginTop: 6 }}
+        />
+        <button onClick={handleVerify} style={{ marginTop: 8, padding: "8px 12px" }}>
+          Verify OTP
+        </button>
       </div>
 
       <div style={{ marginTop: 18 }}>
         <strong>Widget loaded:</strong> {loaded ? "Yes" : "No"}
+      </div>
+
+      <div style={{ marginTop: 8 }}>
+        <strong>ReqId:</strong> {reqId || "—"}
+      </div>
+      <div style={{ marginTop: 8 }}>
+        <strong>Demo mode:</strong> {isDemo ? "Yes (no real SMS)" : "No"}
       </div>
 
       <div style={{ marginTop: 12, background: "#f6f8fa", padding: 12, borderRadius: 6 }}>
