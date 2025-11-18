@@ -1,5 +1,7 @@
-- [x] Modify BodySchema to make 'from' and 'to' optional in parse function
-- [x] Update POST logic to collect all busy slots if 'from' and 'to' are not provided
-- [x] Update response to return { aid, bid, busy: mergedBusy } without 'from' and 'to'
-- [x] Remove eventId and duration from BodySchema, only require aid and bid
-- [x] Update logic to always use '/meetings' and handle duration from meeting data or default
+# TODO: Modify Meeting Request API
+
+- [x] Update Zod schema to remove mode and notes, make eventId optional
+- [x] Add logic to query eventId for bId if not provided
+- [x] Set defaults for mode ('inperson') and notes ('')
+- [x] Update meeting creation to use the resolved eventId
+- [x] Test the updated API

@@ -60,17 +60,15 @@ export async function OPTIONS() {
 }
 
 const Schema = z.object({
-  eventId: z.string().min(1),
+  eventId: z.string().min(1).optional(),
   aId: z.string().min(1), // requester (current user)
   scheduledAt: z.preprocess(
     (v) => (typeof v === 'string' ? Date.parse(v) : Number(v)),
     z.number().int().positive()
   ),
   durationMin: z.number().int().positive().default(30),
-  mode: z.enum(['inperson', 'online']).default('inperson'),
   place: z.string().optional().default(''),
   topic: z.string().optional().default(''),
-  notes: z.string().optional().default(''),
 });
 
 export async function POST(req, context) {
@@ -85,13 +83,27 @@ export async function POST(req, context) {
     const body = await req.json();
     const parsed = Schema.parse(body);
 
-    const eventId = parsed.eventId.trim();
+    let eventId = parsed.eventId?.trim();
     const aId = String(parsed.aId ?? '').trim();
 
-    if (!eventId || eventId.toLowerCase() === 'undefined') {
-      return addCORS(
-        NextResponse.json({ error: 'Missing valid eventId' }, { status: 400 })
-      );
+    if (!eventId) {
+      // Query to find eventId for bId
+      const eventMembersRef = rtdb.ref('/eventMembers');
+      const snapshot = await eventMembersRef.once('value');
+      const eventMembers = snapshot.val();
+      if (eventMembers) {
+        for (const eId in eventMembers) {
+          if (eventMembers[eId][bId]) {
+            eventId = eId;
+            break;
+          }
+        }
+      }
+      if (!eventId) {
+        return addCORS(
+          NextResponse.json({ error: 'No event found for the recipient member' }, { status: 400 })
+        );
+      }
     }
 
     if (
@@ -147,15 +159,20 @@ export async function POST(req, context) {
     const newMeetingRef = rtdb.ref(`/meetings/${eventId}`).push();
     const meetingId = newMeetingRef.key;
 
+    const scheduledAt = Number(parsed.scheduledAt);
+    const durationMin = parsed.durationMin;
+    const endTime = scheduledAt + (durationMin * 60);
+
     const meeting = {
       aId,
       bId,
-      scheduledAt: Number(parsed.scheduledAt),
-      durationMin: parsed.durationMin,
-      mode: parsed.mode,
+      scheduledAt,
+      durationMin,
+      endTime,
+      mode: 'inperson',
       place: parsed.place,
       topic: parsed.topic,
-      notes: parsed.notes,
+      notes: '',
       status: 'pending',
       createdAt: now,
       updatedAt: now,
@@ -173,6 +190,7 @@ export async function POST(req, context) {
       meetingId,
       scheduledAt: meeting.scheduledAt,
       durationMin: meeting.durationMin,
+      endTime: meeting.endTime,
       status: meeting.status,
       otherPartyId: bId,
       topic: meeting.topic,
@@ -182,6 +200,7 @@ export async function POST(req, context) {
       meetingId,
       scheduledAt: meeting.scheduledAt,
       durationMin: meeting.durationMin,
+      endTime: meeting.endTime,
       status: meeting.status,
       otherPartyId: aId,
       topic: meeting.topic,
