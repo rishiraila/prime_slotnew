@@ -6,7 +6,6 @@ import { cookies } from 'next/headers';
 import { adminAuth, rtdb } from '@/lib/firebaseAdmin';
 import jwt from 'jsonwebtoken';
 
-const DISABLE_AUTH = process.env.DISABLE_AUTH === 'true';
 const ADMIN_COOKIE = 'admin_session';
 const JWT_COOKIE = 'session';
 const JWT_SECRET = process.env.JWT_SECRET || 'MySuperSecretJWTSecret';
@@ -23,23 +22,25 @@ export async function OPTIONS() {
 }
 
 async function requireUser(req) {
-  if (DISABLE_AUTH) return { mode: 'test', uid: 'TEST_USER' };
-
   const jar = await cookies();
 
-  // 1) try JWT
-  let token = null;
+  // 1) try Bearer token (JWT from verify-widget-token)
   const auth =
     req.headers.get('authorization') ||
     req.headers.get('Authorization') ||
     '';
   if (auth && auth.startsWith('Bearer ')) {
-    token = auth.slice('Bearer '.length).trim();
-  }
-  if (!token) {
-    token = jar.get(JWT_COOKIE)?.value || null;
+    const token = auth.slice('Bearer '.length).trim();
+    try {
+      const payload = jwt.verify(token, JWT_SECRET);
+      return { mode: 'member', uid: payload.sub, payload };
+    } catch (e) {
+      // ignore, try cookie
+    }
   }
 
+  // 2) try JWT cookie fallback
+  const token = jar.get(JWT_COOKIE)?.value;
   if (token && JWT_SECRET) {
     try {
       const payload = jwt.verify(token, JWT_SECRET);
@@ -49,7 +50,7 @@ async function requireUser(req) {
     }
   }
 
-  // 2) fallback: admin_session
+  // 3) fallback: admin_session
   const session = jar.get(ADMIN_COOKIE)?.value;
   if (!session)
     throw Object.assign(new Error('Unauthorized'), { status: 401 });
@@ -72,15 +73,6 @@ export async function GET(req, { params }) {
           { error: 'Missing route param memberId' },
           { status: 400 }
         )
-      );
-    }
-
-    const user = await requireUser(req);
-
-    // For member mode, ensure memberId matches authenticated user; for admin, allow any
-    if (user.mode === 'member' && user.uid !== memberId) {
-      return addCORS(
-        NextResponse.json({ error: 'Not allowed' }, { status: 403 })
       );
     }
 
