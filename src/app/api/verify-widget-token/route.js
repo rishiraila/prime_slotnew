@@ -209,7 +209,7 @@ export async function POST(request) {
         )
       );
 
-    const JWT_SECRET = "MY_SUPER_SECRET_KEY_123";
+     const JWT_SECRET = process.env.JWT_SECRET || "MySuperSecretJWTSecret";
     const maxAge = Number(process.env.JWT_MAX_AGE || 60 * 60 * 24 * 7);
 
     const responseBody = {
