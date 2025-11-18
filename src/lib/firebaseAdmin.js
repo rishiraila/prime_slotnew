@@ -46,23 +46,25 @@ dUH8NtxpHPKBTFLOohlYv9A=
   universe_domain: 'googleapis.com',
 };
 
+// ------------------------------
+// Initialize Firebase Admin App
+// ------------------------------
 const app =
   getApps().length
     ? getApp()
     : initializeApp({
         credential: cert(serviceAccount),
         databaseURL: 'https://prime-slot-35cd9-default-rtdb.firebaseio.com',
-
-        // ✅ use the actual bucket ID shown in Firebase console:
         // gs://prime-slot-35cd9.firebasestorage.app
         storageBucket: 'prime-slot-35cd9.firebasestorage.app',
       });
 
+// ------------------------------
+// Exports
+// ------------------------------
 export const adminAuth = getAdminAuth(app);
 export const rtdb = getDatabase(app);
 export const storage = getStorage(app);
-
-// Everyone uses SAME bucket
 export const bucket = storage.bucket();
 
 export function getAdminApp() {
