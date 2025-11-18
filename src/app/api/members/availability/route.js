@@ -4,7 +4,46 @@ export const dynamic = 'force-dynamic';
 import { NextResponse } from 'next/server';
 import { cookies } from 'next/headers';
 import { adminAuth, rtdb } from '@/lib/firebaseAdmin';
-import { z } from 'zod';
+import jwt from 'jsonwebtoken';
+
+const ADMIN_COOKIE = 'admin_session';
+const JWT_COOKIE = 'session';
+const JWT_SECRET = process.env.JWT_SECRET || 'MySuperSecretJWTSecret';
+
+async function requireUser(req) {
+  const jar = await cookies();
+
+  // 1) Try member JWT (Authorization: Bearer or session cookie)
+  let token = null;
+  const auth =
+    req.headers.get('authorization') ||
+    req.headers.get('Authorization') ||
+    '';
+
+  if (auth && auth.startsWith('Bearer ')) {
+    token = auth.slice('Bearer '.length).trim();
+  }
+  if (!token) {
+    token = jar.get(JWT_COOKIE)?.value || null;
+  }
+
+  if (token && JWT_SECRET) {
+    try {
+      const payload = jwt.verify(token, JWT_SECRET);
+      return { mode: 'member', uid: payload.sub, payload };
+    } catch (e) {
+      // ignore and try admin_session
+    }
+  }
+
+  // 2) Fallback: admin_session (admin web)
+  const session = jar.get(ADMIN_COOKIE)?.value;
+  if (!session)
+    throw Object.assign(new Error('Unauthorized'), { status: 401 });
+
+  const decoded = await adminAuth.verifySessionCookie(session, true);
+  return { mode: 'admin', uid: decoded.uid, decoded };
+}
 
 function addCORS(res) {
   res.headers.set('Access-Control-Allow-Origin', '*');
@@ -12,33 +51,47 @@ function addCORS(res) {
   res.headers.set('Access-Control-Allow-Headers', 'Content-Type, Authorization');
   return res;
 }
-export async function OPTIONS() { return addCORS(NextResponse.json({}, { status: 204 })); }
-
-async function requireSession() {
-  const jar = await cookies();
-  const session = jar.get('admin_session')?.value;
-  if (!session) throw Object.assign(new Error('Unauthorized'), { status: 401 });
-  return adminAuth.verifySessionCookie(session, true);
+export async function OPTIONS() {
+  return addCORS(NextResponse.json({}, { status: 204 }));
 }
 
-const BodySchema = z.object({
-  aId: z.string().min(1),
-  bId: z.string().min(1),
-  from: z.preprocess(v => Number(v), z.number().int().positive()),
-  to: z.preprocess(v => Number(v), z.number().int().positive()),
-  minDurationMin: z.number().int().positive().optional().default(30),
-  eventId: z.string().optional()
-});
+const BodySchema = {
+  parse(body) {
+    const {
+      aId,
+      bId,
+      from,
+      to,
+      minDurationMin = 30,
+      eventId,
+    } = body || {};
+    if (!aId || !bId) throw Object.assign(new Error('aId & bId required'), { status: 400 });
+    const fromNum = Number(from);
+    const toNum = Number(to);
+    if (!fromNum || !toNum || fromNum <= 0 || toNum <= 0) {
+      throw Object.assign(new Error('Invalid from/to'), { status: 400 });
+    }
+    return {
+      aId: String(aId),
+      bId: String(bId),
+      from: fromNum,
+      to: toNum,
+      minDurationMin: Number(minDurationMin) || 30,
+      eventId: eventId ? String(eventId) : undefined,
+    };
+  },
+};
 
 function mergeIntervals(intervals = []) {
   if (!intervals.length) return [];
-  intervals.sort((a,b) => a.start - b.start);
+  intervals.sort((a, b) => a.start - b.start);
   const out = [];
   let cur = { ...intervals[0] };
   for (let i = 1; i < intervals.length; i++) {
     const it = intervals[i];
-    if (it.start <= cur.end) cur.end = Math.max(cur.end, it.end);
-    else {
+    if (it.start <= cur.end) {
+      cur.end = Math.max(cur.end, it.end);
+    } else {
       out.push(cur);
       cur = { ...it };
     }
@@ -49,9 +102,10 @@ function mergeIntervals(intervals = []) {
 
 export async function POST(req) {
   try {
-    await requireSession();
-    const body = await req.json();
-    const { aId, bId, from, to, minDurationMin, eventId } = BodySchema.parse(body);
+    await requireUser(req);
+    const rawBody = await req.json();
+    const { aId, bId, from, to, minDurationMin, eventId } =
+      BodySchema.parse(rawBody);
 
     const meetingsRoot = eventId ? `/meetings/${eventId}` : '/meetings';
     const snap = await rtdb.ref(meetingsRoot).get();
@@ -65,18 +119,27 @@ export async function POST(req) {
           if (m.aId === aId || m.bId === aId || m.aId === bId || m.bId === bId) {
             const start = Number(m.scheduledAt || 0);
             const end = start + ((m.durationMin || minDurationMin) * 60 * 1000);
-            if (end > from && start < to) busy.push({ start: Math.max(start, from), end: Math.min(end, to) });
+            if (end > from && start < to) {
+              busy.push({
+                start: Math.max(start, from),
+                end: Math.min(end, to),
+              });
+            }
           }
         }
       } else {
-        // root: /meetings -> { eventId: { meetingId: {...} } }
         for (const [evId, block] of Object.entries(val)) {
           for (const [mId, m] of Object.entries(block || {})) {
             if (!m || m.status === 'canceled') continue;
             if (m.aId === aId || m.bId === aId || m.aId === bId || m.bId === bId) {
               const start = Number(m.scheduledAt || 0);
               const end = start + ((m.durationMin || minDurationMin) * 60 * 1000);
-              if (end > from && start < to) busy.push({ start: Math.max(start, from), end: Math.min(end, to) });
+              if (end > from && start < to) {
+                busy.push({
+                  start: Math.max(start, from),
+                  end: Math.min(end, to),
+                });
+              }
             }
           }
         }
@@ -93,8 +156,15 @@ export async function POST(req) {
     }
     if (to - cursor >= minMs) free.push({ start: cursor, end: to });
 
-    return addCORS(NextResponse.json({ aId, bId, from, to, busy: mergedBusy, free }));
+    return addCORS(
+      NextResponse.json({ aId, bId, from, to, busy: mergedBusy, free })
+    );
   } catch (e) {
-    return addCORS(NextResponse.json({ error: e.message || 'Server error' }, { status: e.status || 500 }));
+    return addCORS(
+      NextResponse.json(
+        { error: e.message || 'Server error' },
+        { status: e.status || 500 }
+      )
+    );
   }
 }
