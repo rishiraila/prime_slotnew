@@ -131,7 +131,11 @@ export async function PATCH(req, { params }) {
     // Update the member in RTDB
     await rtdb.ref(`/members/${memberId}`).update(updateData);
 
-    return addCORS(NextResponse.json({ message: 'Member updated successfully' }, { status: 200 }));
+    // Fetch the updated member data
+    const updatedMemberSnap = await rtdb.ref(`/members/${memberId}`).once('value');
+    const updatedMemberData = updatedMemberSnap.val();
+
+    return addCORS(NextResponse.json({ member: { id: memberId, ...updatedMemberData } }, { status: 200 }));
   } catch (e) {
     return addCORS(
       NextResponse.json(
