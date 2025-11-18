@@ -57,45 +57,51 @@ async function requireUser(req) {
   return { mode: 'admin', uid: decoded.uid, decoded };
 }
 
-export async function GET(req, { params }) {
+export async function GET(req) {
   try {
-    const paramsData = await params;
-    const memberId =
-      paramsData?.id ||
-      paramsData?.memberId ||
-      paramsData?.memberid ||
-      paramsData?.member;
-
-    if (!memberId) {
-      return addCORS(
-        NextResponse.json(
-          { error: 'Missing route param memberId' },
-          { status: 400 }
-        )
-      );
-    }
-
     const user = await requireUser(req);
 
-    // For member mode, ensure memberId matches authenticated user; for admin, allow any
-    if (user.mode === 'member' && user.uid !== memberId) {
+    // Only allow member mode, as the task is for users in the token
+    if (user.mode !== 'member') {
       return addCORS(
         NextResponse.json({ error: 'Not allowed' }, { status: 403 })
       );
     }
 
-    // Fetch member details from /members/{memberId}
-    const memberSnap = await rtdb.ref(`/members/${memberId}`).once('value');
-    if (!memberSnap.exists()) {
-      return addCORS(
-        NextResponse.json({ error: 'Member not found' }, { status: 404 })
-      );
+    const memberId = user.uid;
+
+    // Query memberMeetings for the member
+    const memberMeetingsRef = rtdb.ref(`/memberMeetings/${memberId}`);
+    const memberMeetingsSnap = await memberMeetingsRef.once('value');
+    const memberMeetings = memberMeetingsSnap.val();
+
+    if (!memberMeetings) {
+      return addCORS(NextResponse.json({ meetings: [] }, { status: 200 }));
     }
 
-    const memberData = memberSnap.val();
+    const pendingMeetings = [];
 
-    // Return the full member details
-    return addCORS(NextResponse.json({ member: { id: memberId, ...memberData } }, { status: 200 }));
+    // For each eventId, check meetings with status 'pending'
+    for (const eventId in memberMeetings) {
+      const eventMeetings = memberMeetings[eventId];
+      for (const meetingId in eventMeetings) {
+        const meetingData = eventMeetings[meetingId];
+        if (meetingData.status === 'pending') {
+          // Fetch full meeting details from /meetings/${eventId}/${meetingId}
+          const fullMeetingSnap = await rtdb.ref(`/meetings/${eventId}/${meetingId}`).once('value');
+          if (fullMeetingSnap.exists()) {
+            const fullMeeting = fullMeetingSnap.val();
+            pendingMeetings.push({
+              meetingId,
+              eventId,
+              ...fullMeeting,
+            });
+          }
+        }
+      }
+    }
+
+    return addCORS(NextResponse.json({ meetings: pendingMeetings }, { status: 200 }));
   } catch (e) {
     return addCORS(
       NextResponse.json(
