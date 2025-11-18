@@ -58,26 +58,13 @@ export async function OPTIONS() {
 const BodySchema = {
   parse(body) {
     const {
-      aId,
-      bId,
-      from,
-      to,
-      minDurationMin = 30,
-      eventId,
+      aid,
+      bid,
     } = body || {};
-    if (!aId || !bId) throw Object.assign(new Error('aId & bId required'), { status: 400 });
-    const fromNum = Number(from);
-    const toNum = Number(to);
-    if (!fromNum || !toNum || fromNum <= 0 || toNum <= 0) {
-      throw Object.assign(new Error('Invalid from/to'), { status: 400 });
-    }
+    if (!aid || !bid) throw Object.assign(new Error('aid & bid required'), { status: 400 });
     return {
-      aId: String(aId),
-      bId: String(bId),
-      from: fromNum,
-      to: toNum,
-      minDurationMin: Number(minDurationMin) || 30,
-      eventId: eventId ? String(eventId) : undefined,
+      aid: String(aid),
+      bid: String(bid),
     };
   },
 };
@@ -104,60 +91,29 @@ export async function POST(req) {
   try {
     await requireUser(req);
     const rawBody = await req.json();
-    const { aId, bId, from, to, minDurationMin, eventId } =
-      BodySchema.parse(rawBody);
+    const { aid, bid } = BodySchema.parse(rawBody);
 
-    const meetingsRoot = eventId ? `/meetings/${eventId}` : '/meetings';
-    const snap = await rtdb.ref(meetingsRoot).get();
+    const snap = await rtdb.ref('/meetings').get();
     const busy = [];
 
     if (snap.exists()) {
       const val = snap.val();
-      if (eventId) {
-        for (const [mId, m] of Object.entries(val || {})) {
+      for (const [evId, block] of Object.entries(val)) {
+        for (const [mId, m] of Object.entries(block || {})) {
           if (!m || m.status === 'canceled') continue;
-          if (m.aId === aId || m.bId === aId || m.aId === bId || m.bId === bId) {
+          if (m.aId === aid || m.bId === aid || m.aId === bid || m.bId === bid) {
             const start = Number(m.scheduledAt || 0);
-            const end = start + ((m.durationMin || minDurationMin) * 60 * 1000);
-            if (end > from && start < to) {
-              busy.push({
-                start: Math.max(start, from),
-                end: Math.min(end, to),
-              });
-            }
-          }
-        }
-      } else {
-        for (const [evId, block] of Object.entries(val)) {
-          for (const [mId, m] of Object.entries(block || {})) {
-            if (!m || m.status === 'canceled') continue;
-            if (m.aId === aId || m.bId === aId || m.aId === bId || m.bId === bId) {
-              const start = Number(m.scheduledAt || 0);
-              const end = start + ((m.durationMin || minDurationMin) * 60 * 1000);
-              if (end > from && start < to) {
-                busy.push({
-                  start: Math.max(start, from),
-                  end: Math.min(end, to),
-                });
-              }
-            }
+            const end = start + ((m.durationMin || 30) * 60 * 1000);
+            busy.push({ start, end });
           }
         }
       }
     }
 
     const mergedBusy = mergeIntervals(busy);
-    const minMs = minDurationMin * 60 * 1000;
-    const free = [];
-    let cursor = from;
-    for (const iv of mergedBusy) {
-      if (iv.start - cursor >= minMs) free.push({ start: cursor, end: iv.start });
-      cursor = Math.max(cursor, iv.end);
-    }
-    if (to - cursor >= minMs) free.push({ start: cursor, end: to });
 
     return addCORS(
-      NextResponse.json({ aId, bId, from, to, busy: mergedBusy, free })
+      NextResponse.json({ aid, bid, busy: mergedBusy })
     );
   } catch (e) {
     return addCORS(

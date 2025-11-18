@@ -11,6 +11,17 @@ export default function UsersInfoPage() {
   const [isLoading, setIsLoading] = useState(true);
   const [file, setFile] = useState(null);
   const [isImporting, setIsImporting] = useState(false);
+  const [editingMember, setEditingMember] = useState(null);
+  const [isEditing, setIsEditing] = useState(false);
+  const [editForm, setEditForm] = useState({
+    fullName: '',
+    email: '',
+    phone: '',
+    businessCategory: '',
+    chapterName: '',
+    memberStatus: '',
+    notes: '',
+  });
 
   const fetchMembers = useCallback(async () => {
     setIsLoading(true);
@@ -83,6 +94,64 @@ export default function UsersInfoPage() {
     }
   };
 
+  const handleEdit = (member) => {
+    setEditingMember(member);
+    setEditForm({
+      fullName: member.fullName || '',
+      email: member.email || '',
+      phone: member.phone || '',
+      businessCategory: member.businessCategory || '',
+      chapterName: member.chapterName || '',
+      memberStatus: member.memberStatus || '',
+      notes: member.notes || '',
+    });
+    setIsEditing(true);
+  };
+
+  const handleEditSubmit = async (e) => {
+    e.preventDefault();
+    if (!editingMember) return;
+
+    try {
+      const response = await fetch(`/api/members/${editingMember.id}`, {
+        method: 'PATCH',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+          ...editForm,
+          updatedAt: Date.now(),
+        }),
+      });
+
+      if (!response.ok) {
+        throw new Error('Failed to update member');
+      }
+
+      alert('Member updated successfully!');
+      setIsEditing(false);
+      setEditingMember(null);
+      await fetchMembers(); // Refresh the list
+    } catch (error) {
+      console.error('Edit error:', error);
+      alert(`Edit failed: ${error.message}`);
+    }
+  };
+
+  const handleEditCancel = () => {
+    setIsEditing(false);
+    setEditingMember(null);
+    setEditForm({
+      fullName: '',
+      email: '',
+      phone: '',
+      businessCategory: '',
+      chapterName: '',
+      memberStatus: '',
+      notes: '',
+    });
+  };
+
   return (
     <div className="container-xxl flex-grow-1 container-p-y">
       <div className="row g-4 mb-4">
@@ -153,7 +222,7 @@ export default function UsersInfoPage() {
                         <i className="ri-more-2-line"></i>
                       </button>
                       <div className="dropdown-menu">
-                        <a className="dropdown-item" href="#"><i className="ri-pencil-line me-1"></i> Edit</a>
+                        <a className="dropdown-item" href="#" onClick={() => handleEdit(user)}><i className="ri-pencil-line me-1"></i> Edit</a>
                         <a className="dropdown-item" href="#"><i className="ri-delete-bin-7-line me-1"></i> Delete</a>
                       </div>
                     </div>
@@ -188,6 +257,103 @@ export default function UsersInfoPage() {
           </div>
         </div>
       </div>
+
+      {/* Edit Member Modal */}
+      {isEditing && (
+        <div className="modal fade show" id="editMemberModal" tabIndex="-1" aria-hidden="false" style={{ display: 'block' }}>
+          <div className="modal-dialog modal-dialog-centered" role="document">
+            <div className="modal-content">
+              <div className="modal-header">
+                <h5 className="modal-title">Edit Member</h5>
+                <button type="button" className="btn-close" onClick={handleEditCancel} aria-label="Close"></button>
+              </div>
+              <form onSubmit={handleEditSubmit}>
+                <div className="modal-body">
+                  <div className="mb-3">
+                    <label htmlFor="fullName" className="form-label">Full Name</label>
+                    <input
+                      type="text"
+                      className="form-control"
+                      id="fullName"
+                      value={editForm.fullName}
+                      onChange={(e) => setEditForm({ ...editForm, fullName: e.target.value })}
+                      required
+                    />
+                  </div>
+                  <div className="mb-3">
+                    <label htmlFor="email" className="form-label">Email</label>
+                    <input
+                      type="email"
+                      className="form-control"
+                      id="email"
+                      value={editForm.email}
+                      onChange={(e) => setEditForm({ ...editForm, email: e.target.value })}
+                      required
+                    />
+                  </div>
+                  <div className="mb-3">
+                    <label htmlFor="phone" className="form-label">Phone</label>
+                    <input
+                      type="text"
+                      className="form-control"
+                      id="phone"
+                      value={editForm.phone}
+                      onChange={(e) => setEditForm({ ...editForm, phone: e.target.value })}
+                    />
+                  </div>
+                  <div className="mb-3">
+                    <label htmlFor="businessCategory" className="form-label">Business Category</label>
+                    <input
+                      type="text"
+                      className="form-control"
+                      id="businessCategory"
+                      value={editForm.businessCategory}
+                      onChange={(e) => setEditForm({ ...editForm, businessCategory: e.target.value })}
+                    />
+                  </div>
+                  <div className="mb-3">
+                    <label htmlFor="chapterName" className="form-label">Chapter Name</label>
+                    <input
+                      type="text"
+                      className="form-control"
+                      id="chapterName"
+                      value={editForm.chapterName}
+                      onChange={(e) => setEditForm({ ...editForm, chapterName: e.target.value })}
+                    />
+                  </div>
+                  <div className="mb-3">
+                    <label htmlFor="memberStatus" className="form-label">Member Status</label>
+                    <select
+                      className="form-control"
+                      id="memberStatus"
+                      value={editForm.memberStatus}
+                      onChange={(e) => setEditForm({ ...editForm, memberStatus: e.target.value })}
+                    >
+                      <option value="Active">Active</option>
+                      <option value="Pending">Pending</option>
+                      <option value="Inactive">Inactive</option>
+                    </select>
+                  </div>
+                  <div className="mb-3">
+                    <label htmlFor="notes" className="form-label">Notes</label>
+                    <textarea
+                      className="form-control"
+                      id="notes"
+                      rows="3"
+                      value={editForm.notes}
+                      onChange={(e) => setEditForm({ ...editForm, notes: e.target.value })}
+                    ></textarea>
+                  </div>
+                </div>
+                <div className="modal-footer">
+                  <button type="button" className="btn btn-label-secondary" onClick={handleEditCancel}>Cancel</button>
+                  <button type="submit" className="btn btn-primary">Save Changes</button>
+                </div>
+              </form>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }
