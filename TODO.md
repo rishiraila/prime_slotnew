@@ -1,20 +1,16 @@
-# TODO: Implement API for Member Schedule Meetings
+# TODO: Fix Calendar Slot Availability
 
 ## Approved Plan
-- Create a new route file: `src/app/api/meetings/route.js`
-- Implement GET function using `requireUser` for auth (member mode only).
-- Extract memberId from JWT token (`user.uid`).
-- Query `/memberMeetings/${memberId}` to get all eventIds and meetingIds for the member.
-- For each meeting, fetch full data from `/meetings/${eventId}/${meetingId}`.
-- Return the list of all meetings for the member across all events.
-- Ensure CORS and error handling.
+- Modify the POST function in `src/app/api/members/availability/route.js` to return calendar events instead of busy intervals.
+- For each meeting involving aid or bid, create an event object with start/end, title (e.g., "Meeting with [other member's name]"), and other FullCalendar props.
+- Fetch member names from `/members/{id}` to include in titles.
+- Return { events: [event1, event2, ...] } instead of { busy: [...] }.
+- Update any frontend code that uses this API to handle events instead of busy intervals.
 
 ## Steps to Complete
-- [x] Create `src/app/api/meetings/route.js` with basic structure (imports, runtime, etc.).
-- [x] Add `requireUser` function (copied from existing routes like `src/app/api/members/meetings/pending/route.js`).
-- [x] Implement GET function: authenticate user, extract memberId, query memberMeetings, fetch full meetings, return JSON response.
-- [x] Add CORS headers and OPTIONS handler.
-- [x] Start the development server to test the endpoint.
-- [ ] Test the endpoint with a member JWT token to verify it returns meetings across events.
-- [ ] Verify no admin access or other modes are allowed.
-- [ ] Check for any integration issues with existing code.
+- [x] Modify `src/app/api/members/availability/route.js` to return events array.
+- [x] Add logic to fetch member names for event titles.
+- [x] Format meetings as FullCalendar event objects.
+- [ ] Test the API with POST request including aid and bid.
+- [ ] Verify events are returned for their meetings.
+- [ ] Integrate with calendar JS to fetch and display these events.

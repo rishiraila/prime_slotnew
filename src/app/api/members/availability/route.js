@@ -94,26 +94,73 @@ export async function POST(req) {
     const { aid, bid } = BodySchema.parse(rawBody);
 
     const snap = await rtdb.ref('/meetings').get();
-    const busy = [];
+    const events = [];
 
     if (snap.exists()) {
       const val = snap.val();
+      // Fetch member names for titles
+      const memberIds = new Set([aid, bid]);
+      const memberPromises = Array.from(memberIds).map(async (id) => {
+        const res = await rtdb.ref(`/members/${id}`).get();
+        if (res.exists()) {
+          const memberData = res.val();
+          return { id, name: memberData.name || memberData.displayName || `Member ${id}` };
+        }
+        return { id, name: `Member ${id}` };
+      });
+      const membersArray = await Promise.all(memberPromises);
+      const membersMap = {};
+      membersArray.forEach(member => {
+        membersMap[member.id] = member.name;
+      });
+
       for (const [evId, block] of Object.entries(val)) {
         for (const [mId, m] of Object.entries(block || {})) {
           if (!m || m.status === 'canceled') continue;
           if (m.aId === aid || m.bId === aid || m.aId === bid || m.bId === bid) {
             const start = Number(m.scheduledAt || 0);
             const end = start + ((m.durationMin || 30) * 60 * 1000);
-            busy.push({ start, end });
+
+            // Determine the other member for the title
+            let otherMemberId = null;
+            if (m.aId === aid && m.bId === bid) {
+              otherMemberId = bid; // Meeting between aid and bid
+            } else if (m.aId === bid && m.bId === aid) {
+              otherMemberId = aid; // Meeting between bid and aid
+            } else if (m.aId === aid) {
+              otherMemberId = m.bId; // aid's meeting with someone else
+            } else if (m.bId === aid) {
+              otherMemberId = m.aId; // aid's meeting with someone else
+            } else if (m.aId === bid) {
+              otherMemberId = m.bId; // bid's meeting with someone else
+            } else if (m.bId === bid) {
+              otherMemberId = m.aId; // bid's meeting with someone else
+            }
+
+            const otherMemberName = otherMemberId ? membersMap[otherMemberId] || `Member ${otherMemberId}` : 'Unknown';
+
+            events.push({
+              id: `${evId}-${mId}`,
+              title: `Meeting with ${otherMemberName}`,
+              start: new Date(start).toISOString(),
+              end: new Date(end).toISOString(),
+              allDay: false,
+              extendedProps: {
+                calendar: 'Business',
+                meetingId: mId,
+                eventId: evId,
+                status: m.status || 'scheduled',
+                topic: m.topic || '',
+                notes: m.notes || '',
+              },
+            });
           }
         }
       }
     }
 
-    const mergedBusy = mergeIntervals(busy);
-
     return addCORS(
-      NextResponse.json({ aid, bid, busy: mergedBusy })
+      NextResponse.json({ aid, bid, events })
     );
   } catch (e) {
     return addCORS(
