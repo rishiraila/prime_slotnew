@@ -1,44 +1,33 @@
-// src/app/api/profile/upload/route.js
+// src/app/api/profile/approve/route.js
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
 
 import { NextResponse } from 'next/server';
-import { bucket, rtdb } from '@/lib/firebaseAdmin';
-import jwt from 'jsonwebtoken';
 import { cookies } from 'next/headers';
+import jwt from 'jsonwebtoken';
+import { rtdb } from '@/lib/firebaseAdmin';
 
-const JWT_COOKIE = 'session';              // cookie set by /api/verify-widget-token
-const JWT_SECRET = process.env.JWT_SECRET; // MUST be same value used there
+const JWT_COOKIE = 'session';
+const JWT_SECRET = process.env.JWT_SECRET || 'MySuperSecretJWTSecret';
 
-// helper to get memberId from JWT (user token)
+// same logic as in /api/profile/upload
 async function getMemberIdFromRequest(req) {
   const jar = await cookies();
   let token = jar.get(JWT_COOKIE)?.value || null;
 
-  // Also allow Authorization: Bearer <token>
   if (!token) {
-    const auth =
-      req.headers.get('authorization') || req.headers.get('Authorization');
+    const auth = req.headers.get('authorization') || req.headers.get('Authorization');
     if (auth && auth.startsWith('Bearer ')) {
       token = auth.slice('Bearer '.length).trim();
     }
   }
 
-  if (!token) {
-    console.log('getMemberIdFromRequest: no token found');
-    return null;
-  }
-  if (!JWT_SECRET) {
-    console.error('getMemberIdFromRequest: JWT_SECRET is missing');
-    return null;
-  }
+  if (!token || !JWT_SECRET) return null;
 
   try {
     const payload = jwt.verify(token, JWT_SECRET);
-    console.log('getMemberIdFromRequest: payload =', payload);
     return payload?.sub || null; // memberId
-  } catch (err) {
-    console.error('getMemberIdFromRequest: verify failed', err);
+  } catch {
     return null;
   }
 }
@@ -50,76 +39,32 @@ export async function POST(req) {
   }
 
   try {
-    const formData = await req.formData();
-    const file = formData.get('photo');
-
-    if (!file || typeof file.arrayBuffer !== 'function') {
-      return NextResponse.json({ error: 'No image file provided' }, { status: 400 });
-    }
-
-    if (!file.type.startsWith('image/')) {
-      return NextResponse.json({ error: 'Only image files are allowed' }, { status: 400 });
-    }
-
-    if (file.size > 5 * 1024 * 1024) {
-      return NextResponse.json({ error: 'File size must be less than 5MB' }, { status: 400 });
-    }
-
-    const bytes = await file.arrayBuffer();
-    const buffer = Buffer.from(bytes);
-
-    const fileExtension = file.name.split('.').pop() || 'jpg';
-    const fileName = `profiles/${memberId}/profile_${Date.now()}.${fileExtension}`;
-
-    console.log('Using bucket:', bucket.name);
-
-    const fileUpload = bucket.file(fileName);
-
-    await fileUpload.save(buffer, {
-      metadata: {
-        contentType: file.type,
-        metadata: {
-          uploadedBy: memberId,
-          originalName: file.name,
-        },
-      },
-    });
-
-    await fileUpload.makePublic();
-
-    const publicUrl = `https://storage.googleapis.com/${bucket.name}/${fileName}`;
-    const now = Date.now();
-
-    // /profiles/{memberId}
-    await rtdb.ref(`/profiles/${memberId}`).update({
-      photoURL: publicUrl,
-      updatedAt: now,
-    });
-
-    // /members/{memberId}/userProfile
     const memberProfileRef = rtdb.ref(`/members/${memberId}/userProfile`);
-    const snapshot = await memberProfileRef.get();
-    const current = snapshot.exists() ? snapshot.val() : null;
+    const snap = await memberProfileRef.get();
+    const current = snap.exists() ? snap.val() : null;
+    const now = Date.now();
 
     let newProfile;
     if (typeof current === 'string') {
+      // e.g. "Standard" → convert to object
       newProfile = {
         type: current,
-        photoURL: publicUrl,
-        approved: false,
+        approved: true,
+        approvedAt: now,
         updatedAt: now,
       };
     } else if (current && typeof current === 'object') {
       newProfile = {
         ...current,
-        photoURL: publicUrl,
-        approved: false,
+        approved: true,
+        approvedAt: now,
         updatedAt: now,
       };
     } else {
+      // no previous data, just mark approved
       newProfile = {
-        photoURL: publicUrl,
-        approved: false,
+        approved: true,
+        approvedAt: now,
         updatedAt: now,
       };
     }
@@ -129,14 +74,13 @@ export async function POST(req) {
     return NextResponse.json({
       success: true,
       memberId,
-      photoURL: publicUrl,
       userProfile: newProfile,
-      message: 'Profile photo uploaded and profile updated',
+      message: 'Profile approved',
     });
-  } catch (error) {
-    console.error('Upload error:', error);
+  } catch (err) {
+    console.error('approve-profile error:', err);
     return NextResponse.json(
-      { error: 'Failed to upload image', details: error.message },
+      { error: 'Failed to approve profile', details: String(err) },
       { status: 500 }
     );
   }
