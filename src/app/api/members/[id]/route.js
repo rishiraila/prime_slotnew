@@ -12,7 +12,7 @@ const JWT_SECRET = process.env.JWT_SECRET || 'MySuperSecretJWTSecret';
 
 function addCORS(res) {
   res.headers.set('Access-Control-Allow-Origin', '*');
-  res.headers.set('Access-Control-Allow-Methods', 'GET,OPTIONS');
+  res.headers.set('Access-Control-Allow-Methods', 'GET,PATCH,OPTIONS');
   res.headers.set('Access-Control-Allow-Headers', 'Content-Type, Authorization');
   return res;
 }
@@ -88,6 +88,50 @@ export async function GET(req, { params }) {
 
     // Return the full member details
     return addCORS(NextResponse.json({ member: { id: memberId, ...memberData } }, { status: 200 }));
+  } catch (e) {
+    return addCORS(
+      NextResponse.json(
+        { error: e.message || 'Server error' },
+        { status: e.status || 500 }
+      )
+    );
+  }
+}
+
+export async function PATCH(req, { params }) {
+  try {
+    const paramsData = await params;
+    const memberId =
+      paramsData?.id ||
+      paramsData?.memberId ||
+      paramsData?.memberid ||
+      paramsData?.member;
+
+    if (!memberId) {
+      return addCORS(
+        NextResponse.json(
+          { error: 'Missing route param memberId' },
+          { status: 400 }
+        )
+      );
+    }
+
+    // Require authentication
+    const user = await requireUser(req);
+    // For now, allow admin or the member themselves to update
+    if (user.mode !== 'admin' && user.uid !== memberId) {
+      return addCORS(
+        NextResponse.json({ error: 'Forbidden' }, { status: 403 })
+      );
+    }
+
+    // Parse the request body
+    const updateData = await req.json();
+
+    // Update the member in RTDB
+    await rtdb.ref(`/members/${memberId}`).update(updateData);
+
+    return addCORS(NextResponse.json({ message: 'Member updated successfully' }, { status: 200 }));
   } catch (e) {
     return addCORS(
       NextResponse.json(
