@@ -59,7 +59,6 @@ async function requireUser(req) {
 
 const BodySchema = z.object({
   action: z.enum(['accept', 'decline']),
-  eventId: z.string().min(1),
   message: z.string().optional().default(''),
 });
 
@@ -98,7 +97,26 @@ async function handleRespond(req, paramsPromise) {
       NextResponse.json({ error: 'Invalid JSON body' }, { status: 400 })
     );
   }
-  const { action, eventId, message } = BodySchema.parse(bodyObj);
+  const { action, message } = BodySchema.parse(bodyObj);
+
+  // Find eventId from memberMeetings
+  const memberMeetingsRef = rtdb.ref(`/memberMeetings/${responderId}`);
+  const memberMeetingsSnap = await memberMeetingsRef.once('value');
+  const memberMeetings = memberMeetingsSnap.val();
+  let eventId = null;
+  if (memberMeetings) {
+    for (const eId in memberMeetings) {
+      if (memberMeetings[eId][meetingId]) {
+        eventId = eId;
+        break;
+      }
+    }
+  }
+  if (!eventId) {
+    return addCORS(
+      NextResponse.json({ error: 'Meeting not found for this member' }, { status: 404 })
+    );
+  }
 
   const path = `/meetings/${eventId}/${meetingId}`;
   const snap = await rtdb.ref(path).get();

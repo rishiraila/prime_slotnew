@@ -166,6 +166,7 @@ export async function POST(req, context) {
     const meeting = {
       aId,
       bId,
+      eventId,
       scheduledAt,
       durationMin,
       endTime,
