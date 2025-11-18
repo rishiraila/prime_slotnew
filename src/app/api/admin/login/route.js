@@ -1,3 +1,4 @@
+// src/app/api/admin/login/route.js
 import { NextResponse } from 'next/server'
 import { cookies } from 'next/headers'
 import { adminAuth } from '@/lib/firebaseAdmin'
@@ -13,12 +14,14 @@ export async function POST(req) {
       return NextResponse.json({ error: 'Email and password are required' }, { status: 400 })
     }
 
-    const API_KEY = "AIzaSyDqR1GfS9Wshql-msxrsDAb0ljAaRgMMt4"
+    // 🔴 OLD: const API_KEY = "AIzaSyDqR1GfS9Wshql-msxrsDAb0ljAaRgMMt4"
+    // 🟢 NEW (matches prime-slot-35cd9 project):
+    const API_KEY = 'AIzaSyAbyuKHYzZpA2YAQrPoVy8JfW3yMtTJs3Y'
+
     if (!API_KEY) {
       return NextResponse.json({ error: 'Missing API key' }, { status: 500 })
     }
 
-    // 1) Sign in using Firebase Auth REST (server-side)
     const SIGN_IN_URL =
       `https://identitytoolkit.googleapis.com/v1/accounts:signInWithPassword?key=${API_KEY}`
 
@@ -43,12 +46,10 @@ export async function POST(req) {
 
     const { idToken, localId, email: returnedEmail } = data
 
-    // 2) Create a session cookie with Admin SDK
     const sessionCookie = await adminAuth.createSessionCookie(idToken, {
       expiresIn: EXPIRES_IN_MS,
     })
 
-    // 3) Set secure, httpOnly cookie
     const cookieStore = await cookies()
     cookieStore.set({
       name: COOKIE_NAME,
@@ -60,9 +61,9 @@ export async function POST(req) {
       maxAge: EXPIRES_IN_MS / 1000,
     })
 
-    // 4) Return minimal profile
     return NextResponse.json({ uid: localId, email: returnedEmail })
   } catch (err) {
+    console.error('Login error:', err) // 👈 add this so you see real error in console
     return NextResponse.json({ error: 'Server error' }, { status: 500 })
   }
 }

@@ -9,6 +9,7 @@
     "lint": "eslint"
   },
   "dependencies": {
+    "@google-cloud/storage": "^7.17.3",
     "apexcharts": "^5.3.6",
     "bootstrap": "^5.3.8",
     "firebase": "^12.5.0",

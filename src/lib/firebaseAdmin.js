@@ -1,23 +1,70 @@
-import { getApps, getApp, initializeApp, cert } from 'firebase-admin/app'
-import { getAuth as getAdminAuth } from 'firebase-admin/auth'
-import { getDatabase } from 'firebase-admin/database'
+import { getApps, getApp, initializeApp, cert } from 'firebase-admin/app';
+import { getAuth as getAdminAuth } from 'firebase-admin/auth';
+import { getDatabase } from 'firebase-admin/database';
+import { getStorage } from 'firebase-admin/storage';
+
+// FULL service account from your JSON file
+const serviceAccount = {
+  type: 'service_account',
+  project_id: 'prime-slot-35cd9',
+  private_key_id: 'ef2f1a54338ac9a5d00116cf5090f518600a191b',
+  private_key: `-----BEGIN PRIVATE KEY-----
+MIIEvQIBADANBgkqhkiG9w0BAQEFAASCBKcwggSjAgEAAoIBAQCnlW2Cv1x+kLF7
+yQdf348dhdbwg+orYiMqYeEvzyKtFvZv5Ig09F34BXEWbhSQXdAZZpj7+MKP1pui
++vc6EmrG9RarVLOJEGKQzRNWuApVBbyidJBE8mNjn1XLX11xHsFqAoml+XatbVPj
+zy1FgmyoGz2cWIL3icQCwcMxk1swF9NOrg+qS+YCN6ULzkWumZdkHniAxtJxivvA
+aCY+Lfb7Y7rqLlmXkjugoJqwcB3CDbowaw0I9vHYgwHuNGuIJSTOlP82FER2e6fW
+aUYO3tJdwiMVS3LUKjONXiGaqlCZ6QcG17XG7Hbe3ySO8qUGSXup91Ib6BKdRTXr
+Cd4ilUhTAgMBAAECggEAANW7PnACn3TMFZBKU51zApQknn0hwQaTo0Xqj8jp5M/c
++XC7hvwCrdYlGpYAzzlQbJf4wiSan4nTq6uxaJ4n3wbgjoj0/gVRYGRNKNzw3DyT
+lIGdKGLGwPvNux4mAobDMuqBUgzcnP+S7+sb0CFWtj2wgGNmf6I1kkfx14Di7unl
+aL03+8V5BplXxI6o43Iy2RTI8kQ+vZcgti0NGwnk0tRD5IthDWZ4vb6PY+K8hqO3
+h59wvj9/NQhm2FSbfeq9ldKb/6ILFQcL67EMTcNXAZ4gemQU7cJIPWd8s14kfH2z
+sJBXwFTkEcMzt5A1dhOxDnS7mWeiz3zRkoVneSwBYQKBgQDRU60gcaj1uYiYoBCr
+Na6m3VDfINpSbY3z92y0/7TDv0w6oaOc5WzqNWFKiMqBKf4Zx/sFIGVjAsOk8L3v
+/mY2gDs4kr/dP/mLQu6N9rdKTbiFdfpIikk3fVKHGZivb5sNKQpqB3cTn58Rk5Lx
+XPnZoNy0D/FFqWk31fm9qQgQswKBgQDM8xAMobyUfbY1qb1BAUc6y04qY01T2C75
+bv/tDqU3X042VnEtxoNLwtPKHuw/YvIXUh1qjdHjGXwHWA+EJM9lCyjpVtmG6ZFx
+Eb1ed06GIsA60Kqw4dLfTD2ztVUsoCj7nkQ6XI3FhywYp4k9Cs7wuB4aNudXov+e
+8Wfyi/554QKBgQC04/SGRvJVdoF+M0R0T62f8T0DtOY1uQqkuzorp5VUWynKuQgk
+e3aFZp+uw0sMF3fIW7KmmXpD942OKaRZkqRNkL6cguRek/xXxf1UnNGD2moMmwkw
+SqA+3YPFz+7MHEwHMWIYgl76jEPv8nFXNpuK36IZ0HUVV/LfF3/7z+hyVQKBgAwT
+Ac4MtUR2R4bP0jODNMQU+CztHsAiy1msnW1E4Jzrg3sWCqLswA11k+6jdb2iQar4
+Dn2Zj1T2ymTQXlGlrYZBaw6cLEKTfhsQNXzcQIcMgxCz/GphU4AOSNBOjY8MfH2e
+bFyX2U5a0VE+hYpQGbL61eMreuOh2bdud3ZFox9hAoGAeFX922Hw9iBYH4q+7yGw
+Nhex71Y2yB1dESmiE0zY205gNNnk3rQ4UuB1yhRgKYv7OJW9QEtITCt4aKe+xLPn
+3r3ORTZJQFIsfAv5q05cXC3HUsromOVUcl5+W/kgHm4oTzt041E3UjQWo74FfBs6
+dUH8NtxpHPKBTFLOohlYv9A=
+-----END PRIVATE KEY-----`,
+  client_email: 'firebase-adminsdk-fbsvc@prime-slot-35cd9.iam.gserviceaccount.com',
+  client_id: '101745594309426119785',
+  auth_uri: 'https://accounts.google.com/o/oauth2/auth',
+  token_uri: 'https://oauth2.googleapis.com/token',
+  auth_provider_x509_cert_url: 'https://www.googleapis.com/oauth2/v1/certs',
+  client_x509_cert_url:
+    'https://www.googleapis.com/robot/v1/metadata/x509/firebase-adminsdk-fbsvc%40prime-slot-35cd9.iam.gserviceaccount.com',
+  universe_domain: 'googleapis.com',
+};
 
 const app =
   getApps().length
     ? getApp()
     : initializeApp({
-        credential: cert({
-          projectId: "prime-slot-51dbf",
-          clientEmail: "firebase-adminsdk-fbsvc@prime-slot-51dbf.iam.gserviceaccount.com",
-          privateKey: "-----BEGIN PRIVATE KEY-----\nMIIEvQIBADANBgkqhkiG9w0BAQEFAASCBKcwggSjAgEAAoIBAQCkj/Ib7pjwUDBT\nMzyYJtRwY9LuVmVnuXE/m1kip0yqSrXRhB67btjqbSqX2l2u+k1XVxFOY877JIqS\n7dcQFVRFbzHcB7HzCnkrh1dEceGLjwakHHrhOFO+pTrC803267XHxH7K+Ft4vGNe\nDECdS3l4y9mmTII/MhdH6W4E4ePrBgZxT/PNc5wupoCsS9F/bZErAVSMELoX/hsw\nTMSp8+AGxu1yoBCLH+hG1j61IqgH6S+k1FQVt3JgjzlSj3iGocaa5JtZTF6JLutD\npiV3hB1vT4EBldyTHKxEqBbrGjBuitR5FkIUPRoOzTlofMi5MyZARzxO9SUfFH5h\nExeSnyARAgMBAAECggEADLY73xF+ye1/1iV6lExHk8j6RcPxwGHwUBgJeiZPQ0ZT\nJjSdBSCKbA1zwVgybW5TZCBLK3GFTxwjAjeSKeFj6Zst0E/d3Kbd9lFVmelsIVIy\nkqHKkjQ+L9dmoyGVT7IkkCJrIvWtZzWyPVUX9q6aWwzwKqr1UrllV/49q+3hI8nq\n/VI9Tr5Y8JpH+BxHDA4zGFyzr1mfKUB+dg0dC+TixV4VQ74wmeUpOY9uyjVwfkR3\n6nE6g4rzHad0hmjWXIhZNj9Ya7LPQUZv6y1QlSGH3w37+xM8XoaLoGUDwpxDuBGf\nObVz7SmTEbTKKqWi+FX/tWNom60XwEIZ5fapIgaV0wKBgQDjCMOt4Um9IuPZTsP0\nwSpODz9pJx6dXjnGtjKS28T48f3aTCMgNm/Hp/vvBSYG3kCaK1Y8QIjRJEN/rpsg\nctHUYWuTVQfN10NdOU2Z9GPgWfyvR1if9TlZzDi7+h+J84U1JlVMBz9ex+ykhwFU\njSNymfspUpH9Q5s+EAPYz9vkcwKBgQC5jsQEigDgcGeTzRIuzE7imLIdWk+cl81/\nTkGU/nQlpWrCTRLa77DN1GVuYACJ0K+t7b2ovyLqU4C8jhDGWOcYC2CSv1uAB1HR\nkW0c7EayBGp1PF1gIKK2xmDVnNuvpEsc8UZto1RXuEH03KM+rDO0L68pgnU8xlGF\nsUmLienMawKBgFouMQvwYQnvwfGfh9bAo7098UIjd9Wqh+iWlqAfC66W8O61L36s\nINp9r2TR9rjjr2WNsUNdnvr0HJurD5NkCFUEHWb4b5Ej4G43RMvSd5m2JNi6zkk7\nbvxsUlzYjY6OXGswPtFkT5emcikoNy8OoPX0k/9l/PdM021jjyOf7QhhAoGAZeQ6\nSM/K6XNvvN5H1MDFtHHqpGmZ+7/zzKsZIgqTlrR9qhIOf4BM0smFpRU8VnDsdxJs\nKcRDFO8jauaL2Y6p3y8oKYzAXs4mJHC5vL8Vlt0L5DJwh7+D+d92/vVyQMFzqYHn\njX65aq24MhAR5/FBNvlUMvP7EpNH4qTWYLQrWN8CgYEAsbrHx4TSuVLh7qdZk2m5\nJ40zCVFybVaL9mio1CuE9ya7EXrEhQVxudylfiBiUNB6Xh5GzPqzrnRnOte5WKWI\nX/cSGwN/bTh++QWdqouK6lNgWG1yeXbQGZZE8EdLKlT1LaCV9ApzjWPQBqn2W/O+\ng5qYtWxtJnKI9NeDDCHEcvc=\n-----END PRIVATE KEY-----\n"?.replace(/\\n/g, '\n'),
-        }),
-        databaseURL: "https://prime-slot-51dbf-default-rtdb.firebaseio.com",
-        storageBucket: "prime-slot-51dbf.appspot.com",
-      })
+        credential: cert(serviceAccount),
+        databaseURL: 'https://prime-slot-35cd9-default-rtdb.firebaseio.com',
 
-export const adminAuth = getAdminAuth(app)
-export const rtdb = getDatabase(app)
+        // ✅ use the actual bucket ID shown in Firebase console:
+        // gs://prime-slot-35cd9.firebasestorage.app
+        storageBucket: 'prime-slot-35cd9.firebasestorage.app',
+      });
+
+export const adminAuth = getAdminAuth(app);
+export const rtdb = getDatabase(app);
+export const storage = getStorage(app);
+
+// Everyone uses SAME bucket
+export const bucket = storage.bucket();
 
 export function getAdminApp() {
-  return { adminApp: app, adminAuth, rtdb }
+  return { adminApp: app, adminAuth, rtdb, storage, bucket };
 }

@@ -40,4 +40,7 @@ yarn-error.log*
 *.tsbuildinfo
 next-env.d.ts
 src/lib/prime-slot-51dbf-firebase-adminsdk-*.json
-"src/lib/prime-slot-51dbf-firebase-adminsdk-fbsvc-0c41e7e203.json" 
+"src/lib/prime-slot-51dbf-firebase-adminsdk-fbsvc-0c41e7e203.json"
+
+# temp files
+/tmp

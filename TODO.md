@@ -1,18 +1,17 @@
-# TODO: Fix Meeting Request and Calendar API Issues
+# TODO: Replace Old Firebase Project with New One (prime-slot-35cd9)
 
-## Step 1: Fix Meeting Request Endpoint Validation ✅
-- Update `src/app/api/members/[id]/meetings/request/route.js`
-- Add validation to ensure `aId` and `bId` are defined and valid before checking event membership
-- Add a check: if (!data.aId || !bId) return error
+- [x] Update .env with new client-side Firebase config variables (NEXT_PUBLIC_FIREBASE_API_KEY, NEXT_PUBLIC_FIREBASE_AUTH_DOMAIN, etc.)
+- [x] Update src/lib/firebaseAdmin.js with new project ID, client email, private key, database URL, and storage bucket
+- [x] Verify changes by running the app and checking Firebase connections
 
-## Step 2: Update Calendar Endpoint to Include Free Intervals ✅
-- Update `src/app/api/members/[id]/calendar/route.js`
-- Compute free intervals by finding gaps in busy periods within the from-to range
-- Add logic to merge busy intervals and calculate free slots
-- Update the response to include `free` array alongside `busy`
+# TODO: Build User Profile Update API with Photo Upload
 
-## Step 3: Test the Changes ✅
-- Run the development server ✅ (running on http://localhost:3001)
-- Test the POST /api/members/{memberRecipient}/meetings/request endpoint ✅ (validation added)
-- Test the GET /api/members/{memberRecipient}/calendar endpoint ✅ (now returns free intervals)
-- Verify that errors are resolved and free intervals are returned ✅
+- [x] Install formidable for multipart form parsing
+- [x] Install @google-cloud/storage for Firebase Storage
+- [x] Add storage export to firebaseAdmin.js
+- [x] Create /api/profile/upload endpoint for photo uploads
+- [x] Create tmp directory for file processing
+- [x] Update .gitignore to ignore tmp files
+- [x] Fix formidable compatibility issues with Next.js
+- [x] Switch to native FormData API for file handling
+- [x] Test the API endpoint
