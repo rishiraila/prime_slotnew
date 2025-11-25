@@ -94,10 +94,10 @@ export async function GET(req, { params }) {
         const member = memberSnap.val();
         return {
           id: contactId,
-          name: member.name || 'Unknown',
+          name: member.fullName || 'Unknown',
           phone: member.phone || '',
           email: member.email || '',
-          profile: member.avatar || '', // assuming avatar is the profile field
+          profile: member.userProfile || '', // assuming avatar is the profile field
           addedAt: contactData[contactId].addedAt,
           meetingId: contactData[contactId].meetingId,
         };
