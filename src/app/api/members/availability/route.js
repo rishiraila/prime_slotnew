@@ -1,3 +1,4 @@
+// src/app/api/members/availability/route.js
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
 
@@ -69,50 +70,74 @@ export async function POST(req) {
       return addCORS(NextResponse.json({ error: 'aId and bId required' }, { status: 400 }));
     }
 
-    // Fetch meetings for the event
     let meetings = [];
+
     if (eventId) {
+      // If eventId provided, fetch meetings under that event
       const snap = await rtdb.ref(`/meetings/${eventId}`).get();
       if (snap.exists()) {
-        meetings = Object.entries(snap.val()).map(([id, m]) => ({ id, ...m }));
+        meetings = Object.entries(snap.val()).map(([id, m]) => ({ id, eventId, ...m }));
       }
     } else {
-      // If no eventId, fetch from all events (inefficient, but for completeness)
+      // 1) collect meetings under /events -> /meetings/{eventId}
       const eventsSnap = await rtdb.ref('/events').get();
-      if (eventsSnap.exists()) {
-        const eventIds = Object.keys(eventsSnap.val());
-        for (const eid of eventIds) {
-          const snap = await rtdb.ref(`/meetings/${eid}`).get();
-          if (snap.exists()) {
-            const ms = Object.entries(snap.val()).map(([id, m]) => ({ id, eventId: eid, ...m }));
-            meetings.push(...ms);
-          }
+      const eventsIdsFromEvents = eventsSnap.exists() ? Object.keys(eventsSnap.val()) : [];
+
+      // 2) collect eventIds under /meetings (some eventIds may not be in /events)
+      const meetingsSnap = await rtdb.ref('/meetings').get();
+      const eventIdsFromMeetings = meetingsSnap.exists() ? Object.keys(meetingsSnap.val()) : [];
+
+      const allEventIds = Array.from(new Set([...eventsIdsFromEvents, ...eventIdsFromMeetings]));
+
+      for (const eid of allEventIds) {
+        const snap = await rtdb.ref(`/meetings/${eid}`).get();
+        if (snap.exists()) {
+          const ms = Object.entries(snap.val()).map(([id, m]) => ({ id, eventId: eid, ...m }));
+          meetings.push(...ms);
         }
+      }
+
+      // 3) also include standalone meetings
+      const standaloneSnap = await rtdb.ref('/meetings_standalone').get();
+      if (standaloneSnap.exists()) {
+        const standaloneList = Object.entries(standaloneSnap.val()).map(([id, m]) => ({ id, eventId: null, ...m }));
+        meetings.push(...standaloneList);
       }
     }
 
-    // Filter meetings involving aId or bId
-    const relevantMeetings = meetings.filter(m => m.aId === aId || m.bId === aId || m.aId === bId || m.bId === bId);
+    // Filter meetings involving either member
+    const relevantMeetings = meetings.filter(
+      (m) => m.aId === aId || m.bId === aId || m.aId === bId || m.bId === bId
+    );
 
-    // Collect unique member IDs
+    // Collect unique member IDs used in meetings to fetch human names
     const memberIds = new Set([aId, bId]);
-    relevantMeetings.forEach(m => {
-      memberIds.add(m.aId);
-      memberIds.add(m.bId);
+    relevantMeetings.forEach((m) => {
+      if (m.aId) memberIds.add(m.aId);
+      if (m.bId) memberIds.add(m.bId);
     });
 
-    // Fetch member names
-    const memberPromises = Array.from(memberIds).map(id => rtdb.ref(`/members/${id}`).get().then(snap => ({ id, name: snap.val()?.name || 'Unknown' })));
+    // Fetch member names (try multiple name fields)
+    const memberPromises = Array.from(memberIds).map((id) =>
+      rtdb.ref(`/members/${id}`).get().then((snap) => {
+        const v = snap.exists() ? snap.val() : null;
+        let name = 'Unknown';
+        if (v) name = v.name || v.fullName || v.businessName || v.fullname || 'Unknown';
+        return { id, name };
+      })
+    );
     const members = await Promise.all(memberPromises);
     const memberMap = {};
-    members.forEach(m => memberMap[m.id] = m.name);
+    members.forEach((m) => (memberMap[m.id] = m.name));
 
-    // Format as events
-    const events = relevantMeetings.map(meeting => {
-      const start = meeting.scheduledAt;
-      const end = start + (meeting.durationMin || 30) * 60000; // default 30 min
+    // Format as calendar events
+    const events = relevantMeetings.map((meeting) => {
+      // meeting may have `scheduledAt` in ms (recommended)
+      const start = Number(meeting.scheduledAt) || 0;
+      const end = start + (Number(meeting.durationMin) || 30) * 60 * 1000; // minutes -> ms
       const otherId = meeting.aId === aId ? meeting.bId : meeting.aId;
       const title = `Meeting with ${memberMap[otherId] || 'Unknown'}`;
+
       return {
         id: meeting.id,
         title,
@@ -120,9 +145,10 @@ export async function POST(req) {
         end: new Date(end).toISOString(),
         extendedProps: {
           meetingId: meeting.id,
-          eventId: meeting.eventId || eventId,
+          eventId: meeting.eventId === undefined ? null : meeting.eventId,
           aId: meeting.aId,
           bId: meeting.bId,
+          status: meeting.status || 'pending',
         },
       };
     });

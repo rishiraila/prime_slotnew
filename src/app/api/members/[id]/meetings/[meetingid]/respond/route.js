@@ -1,3 +1,4 @@
+// src/app/api/members/[id]/meetings/[meetingid]/respond/route.js
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
 
@@ -45,31 +46,49 @@ async function requireUser(req) {
       const payload = jwt.verify(token, JWT_SECRET);
       return { mode: 'member', uid: payload.sub, payload };
     } catch (e) {
-      // Log JWT verification error for debugging
-      console.error('JWT verification failed:', e.message);
       // ignore, try admin
     }
   }
 
   // 2) fallback: admin_session
   const session = jar.get(ADMIN_COOKIE)?.value;
-  if (!session) {
-    console.error('Admin session cookie missing');
+  if (!session)
     throw Object.assign(new Error('Unauthorized'), { status: 401 });
-  }
-  try {
-    const decoded = await adminAuth.verifySessionCookie(session, true);
-    return { mode: 'admin', uid: decoded.uid, decoded };
-  } catch (err) {
-    console.error('Admin session verification failed:', err.message);
-    throw Object.assign(new Error('Unauthorized'), { status: 401 });
-  }
+  const decoded = await adminAuth.verifySessionCookie(session, true);
+  return { mode: 'admin', uid: decoded.uid, decoded };
 }
 
 const BodySchema = z.object({
   action: z.enum(['accept', 'decline']),
   message: z.string().optional().default(''),
 });
+
+// Helper: find where the meeting lives for the given member
+async function locateMeetingForMember(memberId, meetingId) {
+  const mmSnap = await rtdb.ref(`/memberMeetings/${memberId}`).once('value');
+  const mm = mmSnap.val();
+  if (!mm) return null;
+
+  // Check legacy event grouped shape first
+  for (const eId of Object.keys(mm)) {
+    if (eId === 'standalone') continue;
+    if (mm[eId] && mm[eId][meetingId]) {
+      return { path: `/meetings/${eId}/${meetingId}`, eventId: eId, standalone: false };
+    }
+  }
+
+  // check standalone bucket
+  if (mm.standalone && mm.standalone[meetingId]) {
+    return { path: `/meetings_standalone/${meetingId}`, eventId: null, standalone: true };
+  }
+
+  // edge: direct meetingId under memberMeetings (rare) -> treat as standalone
+  if (mm[meetingId]) {
+    return { path: `/meetings_standalone/${meetingId}`, eventId: null, standalone: true };
+  }
+
+  return null;
+}
 
 async function handleRespond(req, paramsPromise) {
   const params = await paramsPromise;
@@ -84,17 +103,12 @@ async function handleRespond(req, paramsPromise) {
     params?.meeting;
 
   if (!memberId || !meetingId) {
-    return addCORS(
-      NextResponse.json(
-        { error: 'Missing route params memberId or meetingId' },
-        { status: 400 }
-      )
-    );
+    return addCORS(NextResponse.json({ error: 'Missing route params memberId or meetingId' }, { status: 400 }));
   }
 
   const user = await requireUser(req);
 
-  // For member mode, responder is the authenticated user; for admin, use URL param
+  // Responder: for member mode, it must be the authenticated user; for admin, param is allowed
   const responderId = user.mode === 'member' ? user.uid : memberId;
 
   const text = await req.text();
@@ -102,47 +116,28 @@ async function handleRespond(req, paramsPromise) {
   try {
     bodyObj = text ? JSON.parse(text) : {};
   } catch (err) {
-    return addCORS(
-      NextResponse.json({ error: 'Invalid JSON body' }, { status: 400 })
-    );
+    return addCORS(NextResponse.json({ error: 'Invalid JSON body' }, { status: 400 }));
   }
   const { action, message } = BodySchema.parse(bodyObj);
 
-  // Find eventId from memberMeetings
-  const memberMeetingsRef = rtdb.ref(`/memberMeetings/${responderId}`);
-  const memberMeetingsSnap = await memberMeetingsRef.once('value');
-  const memberMeetings = memberMeetingsSnap.val();
-  let eventId = null;
-  if (memberMeetings) {
-    for (const eId in memberMeetings) {
-      if (memberMeetings[eId][meetingId]) {
-        eventId = eId;
-        break;
-      }
-    }
-  }
-  if (!eventId) {
-    return addCORS(
-      NextResponse.json({ error: 'Meeting not found for this member' }, { status: 404 })
-    );
+  // locate meeting path and whether it's standalone
+  const found = await locateMeetingForMember(responderId, meetingId);
+  if (!found) {
+    return addCORS(NextResponse.json({ error: 'Meeting not found for this member' }, { status: 404 }));
   }
 
-  const path = `/meetings/${eventId}/${meetingId}`;
+  const { path, eventId, standalone } = found;
   const snap = await rtdb.ref(path).get();
   if (!snap.exists()) {
-    return addCORS(
-      NextResponse.json({ error: 'Not found' }, { status: 404 })
-    );
+    return addCORS(NextResponse.json({ error: 'Not found' }, { status: 404 }));
   }
   const meeting = snap.val();
 
-  // enforce ownership
+  // enforce ownership (unless auth disabled)
   if (!DISABLE_AUTH) {
-    const responderId = user.mode === 'member' ? user.uid : memberId;
-    if (meeting.bId !== responderId && meeting.aId !== responderId) {
-      return addCORS(
-        NextResponse.json({ error: 'Not allowed' }, { status: 403 })
-      );
+    const who = user.mode === 'member' ? user.uid : memberId;
+    if (meeting.bId !== who && meeting.aId !== who) {
+      return addCORS(NextResponse.json({ error: 'Not allowed' }, { status: 403 }));
     }
   }
 
@@ -152,44 +147,43 @@ async function handleRespond(req, paramsPromise) {
   if (action === 'accept') {
     updates[`${path}/status`] = 'approved';
     updates[`${path}/updatedAt`] = now;
-    updates[
-      `/memberMeetings/${meeting.aId}/${eventId}/${meetingId}/status`
-    ] = 'approved';
-    updates[
-      `/memberMeetings/${meeting.bId}/${eventId}/${meetingId}/status`
-    ] = 'approved';
-    const notifRef = rtdb
-      .ref(`/notifications/${meeting.createdBy || meeting.aId}`)
-      .push();
-    updates[
-      `/notifications/${meeting.createdBy || meeting.aId}/${notifRef.key}`
-    ] = {
+
+    if (standalone) {
+      updates[`/memberMeetings/${meeting.aId}/standalone/${meetingId}/status`] = 'approved';
+      updates[`/memberMeetings/${meeting.bId}/standalone/${meetingId}/status`] = 'approved';
+    } else {
+      updates[`/memberMeetings/${meeting.aId}/${eventId}/${meetingId}/status`] = 'approved';
+      updates[`/memberMeetings/${meeting.bId}/${eventId}/${meetingId}/status`] = 'approved';
+    }
+
+    const notifRef = rtdb.ref(`/notifications/${meeting.createdBy || meeting.aId}`).push();
+    updates[`/notifications/${meeting.createdBy || meeting.aId}/${notifRef.key}`] = {
       type: 'meeting_accepted',
       meetingId,
-      eventId,
+      eventId: standalone ? null : eventId,
       by: responderId,
       message,
       createdAt: now,
       read: false,
     };
   } else {
+    // decline / cancel
     updates[`${path}/status`] = 'canceled';
     updates[`${path}/updatedAt`] = now;
-    updates[
-      `/memberMeetings/${meeting.aId}/${eventId}/${meetingId}/status`
-    ] = 'canceled';
-    updates[
-      `/memberMeetings/${meeting.bId}/${eventId}/${meetingId}/status`
-    ] = 'canceled';
-    const notifRef = rtdb
-      .ref(`/notifications/${meeting.createdBy || meeting.aId}`)
-      .push();
-    updates[
-      `/notifications/${meeting.createdBy || meeting.aId}/${notifRef.key}`
-    ] = {
+
+    if (standalone) {
+      updates[`/memberMeetings/${meeting.aId}/standalone/${meetingId}/status`] = 'canceled';
+      updates[`/memberMeetings/${meeting.bId}/standalone/${meetingId}/status`] = 'canceled';
+    } else {
+      updates[`/memberMeetings/${meeting.aId}/${eventId}/${meetingId}/status`] = 'canceled';
+      updates[`/memberMeetings/${meeting.bId}/${eventId}/${meetingId}/status`] = 'canceled';
+    }
+
+    const notifRef = rtdb.ref(`/notifications/${meeting.createdBy || meeting.aId}`).push();
+    updates[`/notifications/${meeting.createdBy || meeting.aId}/${notifRef.key}`] = {
       type: 'meeting_declined',
       meetingId,
-      eventId,
+      eventId: standalone ? null : eventId,
       by: responderId,
       message,
       createdAt: now,
