@@ -45,16 +45,25 @@ async function requireUser(req) {
       const payload = jwt.verify(token, JWT_SECRET);
       return { mode: 'member', uid: payload.sub, payload };
     } catch (e) {
+      // Log JWT verification error for debugging
+      console.error('JWT verification failed:', e.message);
       // ignore, try admin
     }
   }
 
   // 2) fallback: admin_session
   const session = jar.get(ADMIN_COOKIE)?.value;
-  if (!session)
+  if (!session) {
+    console.error('Admin session cookie missing');
     throw Object.assign(new Error('Unauthorized'), { status: 401 });
-  const decoded = await adminAuth.verifySessionCookie(session, true);
-  return { mode: 'admin', uid: decoded.uid, decoded };
+  }
+  try {
+    const decoded = await adminAuth.verifySessionCookie(session, true);
+    return { mode: 'admin', uid: decoded.uid, decoded };
+  } catch (err) {
+    console.error('Admin session verification failed:', err.message);
+    throw Object.assign(new Error('Unauthorized'), { status: 401 });
+  }
 }
 
 const BodySchema = z.object({

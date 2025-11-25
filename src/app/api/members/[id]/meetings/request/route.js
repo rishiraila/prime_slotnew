@@ -221,6 +221,15 @@ export async function POST(req, context) {
 
     await rtdb.ref().update(updates);
 
+    // Add contacts for both parties
+    const contactUpdates = {};
+    // For aId, add bId as contact
+    contactUpdates[`/userContacts/${aId}/${bId}`] = { addedAt: now, meetingId };
+    // For bId, add aId as contact
+    contactUpdates[`/userContacts/${bId}/${aId}`] = { addedAt: now, meetingId };
+
+    await rtdb.ref().update(contactUpdates);
+
     return addCORS(
       NextResponse.json({ id: meetingId, ok: true }, { status: 201 })
     );
