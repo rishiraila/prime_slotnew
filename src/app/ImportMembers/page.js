@@ -152,6 +152,29 @@ export default function UsersInfoPage() {
     });
   };
 
+  const handleDelete = async (memberId) => {
+    if (!window.confirm('Are you sure you want to permanently delete this member? This action is irreversible and will remove all their associated data.')) {
+      return;
+    }
+
+    try {
+      const response = await fetch(`/api/members/${memberId}`, {
+        method: 'DELETE',
+      });
+
+      const result = await response.json();
+
+      if (!response.ok) {
+        throw new Error(result.error || 'Failed to delete member');
+      }
+
+      alert('Member deleted successfully!');
+      await fetchMembers(); // Refresh the list
+    } catch (error) {
+      console.error('Delete error:', error);
+      alert(`Delete failed: ${error.message}`);
+    }
+  };
   return (
     <div className="container-xxl flex-grow-1 container-p-y">
       <div className="row g-4 mb-4">
@@ -222,8 +245,8 @@ export default function UsersInfoPage() {
                         <i className="ri-more-2-line"></i>
                       </button>
                       <div className="dropdown-menu">
-                        <a className="dropdown-item" href="#" onClick={() => handleEdit(user)}><i className="ri-pencil-line me-1"></i> Edit</a>
-                        <a className="dropdown-item" href="#"><i className="ri-delete-bin-7-line me-1"></i> Delete</a>
+                        <a className="dropdown-item" href="#" onClick={(e) => { e.preventDefault(); handleEdit(user); }}><i className="ri-pencil-line me-1"></i> Edit</a>
+                        <a className="dropdown-item" href="#" onClick={(e) => { e.preventDefault(); handleDelete(user.id); }}><i className="ri-delete-bin-7-line me-1"></i> Delete</a>
                       </div>
                     </div>
                   </td>
