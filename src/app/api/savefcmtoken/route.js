@@ -108,16 +108,46 @@ export async function POST(req) {
       return addCORS(NextResponse.json({ ok: false, message: 'RTDB not initialized' }, { status: 500 }));
     }
 
-    // Store token under the resolved user id (use push auto-id)
-    const ref = rtdb.ref(`/fcmTokens/${userId}`);
-    await ref.push({
+    const now = Date.now();
+    const userRef = rtdb.ref(`/fcmTokens/${userId}`);
+
+    // 1) Read current record for this user
+    const snap = await userRef.once('value');
+    const exists = snap.exists();
+    if (exists) {
+      const current = snap.val();
+      // If token unchanged, just update modifiedAt/lastSeen
+      if (current && current.token === token) {
+        await userRef.update({ modifiedAt: now, lastSeen: now });
+        return addCORS(NextResponse.json({ ok: true, saved: true, created: false, userId }));
+      }
+      // Token changed for this user: replace token, preserve createdAt if present
+      const createdAt = current?.createdAt || now;
+      await userRef.set({
+        token,
+        platform: platform || current?.platform || 'unknown',
+        createdAt,
+        modifiedAt: now,
+        lastSeen: now,
+      });
+      // Also remove this token from any other user entries (cleanup)
+      await removeTokenFromOtherUsers(token, userId);
+      return addCORS(NextResponse.json({ ok: true, saved: true, created: false, userId }));
+    }
+
+    // 2) No existing record for this user -> create one
+    await userRef.set({
       token,
       platform: platform || 'unknown',
-      createdAt: Date.now(),
-      lastSeen: Date.now(),
+      createdAt: now,
+      modifiedAt: now,
+      lastSeen: now,
     });
 
-    return addCORS(NextResponse.json({ ok: true, saved: true, userId }));
+    // 3) Cleanup same token stored under other users (if any)
+    await removeTokenFromOtherUsers(token, userId);
+
+    return addCORS(NextResponse.json({ ok: true, saved: true, created: true, userId }));
   } catch (err) {
     console.error('save-fcm-token error', err);
     return addCORS(
@@ -126,5 +156,26 @@ export async function POST(req) {
         { status: 500 }
       )
     );
+  }
+}
+
+// Helper: remove any other /fcmTokens/{otherUser} entries where token matches
+async function removeTokenFromOtherUsers(tokenToRemove, keepUserId) {
+  try {
+    const rootSnap = await rtdb.ref('/fcmTokens').once('value');
+    if (!rootSnap.exists()) return;
+    const all = rootSnap.val();
+    const updates = {};
+    Object.entries(all).forEach(([uid, rec]) => {
+      if (uid === keepUserId) return;
+      if (rec && rec.token && rec.token === tokenToRemove) {
+        updates[`/fcmTokens/${uid}`] = null; // remove whole node for that uid
+      }
+    });
+    if (Object.keys(updates).length) {
+      await rtdb.ref().update(updates);
+    }
+  } catch (e) {
+    console.error('cleanup other users tokens error', e);
   }
 }

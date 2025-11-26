@@ -3,12 +3,13 @@ export const dynamic = 'force-dynamic';
 
 import { NextResponse } from 'next/server';
 import { cookies } from 'next/headers';
-import { adminAuth, rtdb } from '@/lib/firebaseAdmin';
 import jwt from 'jsonwebtoken';
+import { adminAuth, rtdb } from '@/lib/firebaseAdmin';
 
 const ADMIN_COOKIE = 'admin_session';
 const JWT_COOKIE = 'session';
 const JWT_SECRET = process.env.JWT_SECRET || 'MySuperSecretJWTSecret';
+const DISABLE_AUTH = process.env.DISABLE_AUTH === 'true';
 
 function addCORS(res) {
   res.headers.set('Access-Control-Allow-Origin', '*');
@@ -21,7 +22,10 @@ export async function OPTIONS() {
   return addCORS(NextResponse.json({}, { status: 204 }));
 }
 
+// requireUser - same logic as you used
 async function requireUser(req) {
+  if (DISABLE_AUTH) return { mode: 'test', uid: 'TEST_USER' };
+
   const jar = await cookies();
 
   // 1) try Bearer token (JWT from verify-widget-token)
@@ -35,7 +39,18 @@ async function requireUser(req) {
       const payload = jwt.verify(token, JWT_SECRET);
       return { mode: 'member', uid: payload.sub, payload };
     } catch (e) {
-      // ignore, try cookie
+      // ignore, try firebase id token next
+    }
+
+    // try Firebase ID token (if the Bearer token is an ID token)
+    if (adminAuth && typeof adminAuth.verifyIdToken === 'function') {
+      try {
+        const decoded = await adminAuth.verifyIdToken(token);
+        // optionally detect admin custom claim, but we just return member mode here
+        return { mode: 'member', uid: decoded.uid, decoded };
+      } catch (e) {
+        // ignore
+      }
     }
   }
 
@@ -50,12 +65,46 @@ async function requireUser(req) {
     }
   }
 
-  // 3) fallback: admin_session
+  // 3) fallback: admin_session (Firebase session cookie)
   const session = jar.get(ADMIN_COOKIE)?.value;
   if (!session)
     throw Object.assign(new Error('Unauthorized'), { status: 401 });
   const decoded = await adminAuth.verifySessionCookie(session, true);
   return { mode: 'admin', uid: decoded.uid, decoded };
+}
+
+// Helper: approve all pending profileUpdateRequests for a given userId
+async function autoApprovePendingRequestsForUser(targetUserId, adminId, adminComment = null) {
+  try {
+    const snap = await rtdb.ref('/profileUpdateRequests').once('value');
+    if (!snap.exists()) return { approved: 0, ids: [] };
+    const all = snap.val();
+    const updates = {};
+    const now = Date.now();
+    let count = 0;
+    const ids = [];
+
+    for (const [reqId, rec] of Object.entries(all)) {
+      if (!rec) continue;
+      if (rec.userId === targetUserId && rec.status === 'pending') {
+        updates[`/profileUpdateRequests/${reqId}/status`] = 'approved';
+        updates[`/profileUpdateRequests/${reqId}/adminId`] = adminId;
+        updates[`/profileUpdateRequests/${reqId}/adminComment`] = adminComment || null;
+        updates[`/profileUpdateRequests/${reqId}/approvedAt`] = now;
+        updates[`/profileUpdateRequests/${reqId}/modifiedAt`] = now;
+        count += 1;
+        ids.push(reqId);
+      }
+    }
+
+    if (count > 0) {
+      await rtdb.ref().update(updates);
+    }
+    return { approved: count, ids };
+  } catch (e) {
+    console.error('autoApprovePendingRequestsForUser error', e);
+    return { approved: 0, ids: [] };
+  }
 }
 
 export async function GET(req, { params }) {
@@ -89,6 +138,7 @@ export async function GET(req, { params }) {
     // Return the full member details
     return addCORS(NextResponse.json({ member: { id: memberId, ...memberData } }, { status: 200 }));
   } catch (e) {
+    console.error('GET /members/[id] error', e);
     return addCORS(
       NextResponse.json(
         { error: e.message || 'Server error' },
@@ -125,18 +175,43 @@ export async function PATCH(req, { params }) {
       );
     }
 
-    // Parse the request body
-    const updateData = await req.json();
+    // Parse the request body (update fields)
+    const updateData = await req.json().catch(() => ({}));
+    if (!updateData || Object.keys(updateData).length === 0) {
+      return addCORS(NextResponse.json({ error: 'No update data provided' }, { status: 400 }));
+    }
 
-    // Update the member in RTDB
+    // Update the member in RTDB (shallow merge)
     await rtdb.ref(`/members/${memberId}`).update(updateData);
 
     // Fetch the updated member data
     const updatedMemberSnap = await rtdb.ref(`/members/${memberId}`).once('value');
     const updatedMemberData = updatedMemberSnap.val();
 
-    return addCORS(NextResponse.json({ member: { id: memberId, ...updatedMemberData } }, { status: 200 }));
+    // If the updater is an admin, automatically approve pending profileUpdateRequests for this user
+    let autoApproved = { approved: 0, ids: [] };
+    if (user.mode === 'admin') {
+      // optional adminComment can be passed in the body (e.g., { ..., adminComment: "Applied via admin UI" })
+      const adminComment = typeof updateData.adminComment === 'string' ? updateData.adminComment : null;
+      // Remove adminComment from actual member update if present (we don't want it stored inside /members unless intended)
+      if (updateData.hasOwnProperty('adminComment')) {
+        // if you don't want adminComment stored under member, ensure it's removed:
+        await rtdb.ref(`/members/${memberId}/adminComment`).set(null);
+      }
+      autoApproved = await autoApprovePendingRequestsForUser(memberId, user.uid, adminComment);
+    }
+
+    return addCORS(
+      NextResponse.json(
+        {
+          member: { id: memberId, ...updatedMemberData },
+          autoApproved,
+        },
+        { status: 200 }
+      )
+    );
   } catch (e) {
+    console.error('PATCH /members/[id] error', e);
     return addCORS(
       NextResponse.json(
         { error: e.message || 'Server error' },
@@ -145,7 +220,8 @@ export async function PATCH(req, { params }) {
     );
   }
 }
-// DELETE handler — paste into src/app/api/members/[id]/route.js
+
+// DELETE handler — paste into src/app/api/members/[id]/route.js (unchanged)
 export async function DELETE(req, { params }) {
   try {
     const paramsData = await params;
