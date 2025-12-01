@@ -2,6 +2,7 @@ import { getApps, getApp, initializeApp, cert } from 'firebase-admin/app';
 import { getAuth as getAdminAuth } from 'firebase-admin/auth';
 import { getDatabase } from 'firebase-admin/database';
 import { getStorage } from 'firebase-admin/storage';
+import { getMessaging } from 'firebase-admin/messaging';
 
 // FULL service account from your JSON file
 const serviceAccount = {
@@ -55,7 +56,6 @@ const app =
     : initializeApp({
         credential: cert(serviceAccount),
         databaseURL: 'https://prime-slot-35cd9-default-rtdb.firebaseio.com',
-        // gs://prime-slot-35cd9.firebasestorage.app
         storageBucket: 'prime-slot-35cd9.firebasestorage.app',
       });
 
@@ -67,6 +67,9 @@ export const rtdb = getDatabase(app);
 export const storage = getStorage(app);
 export const bucket = storage.bucket();
 
+// <-- NEW: export messaging instance so other modules can use messaging.sendMulticast(...)
+export const messaging = getMessaging(app);
+
 export function getAdminApp() {
-  return { adminApp: app, adminAuth, rtdb, storage, bucket };
+  return { adminApp: app, adminAuth, rtdb, storage, bucket, messaging };
 }

@@ -2,7 +2,7 @@ export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
 
 import { NextResponse } from 'next/server';
-import admin, { rtdb } from '@/lib/firebaseAdmin'; // adjust path if required
+import { rtdb, messaging } from '../../../lib/firebaseAdmin';  // <-- named import (messaging added above)
 
 function addCORS(res){
   res.headers.set('Access-Control-Allow-Origin','*');
@@ -21,17 +21,14 @@ export async function POST(req){
       return addCORS(NextResponse.json({ ok:false, message:'userId,title,body required' }, { status:400 }));
     }
 
-    // Optional: verify admin auth or JWT from Authorization header here
-    // const authHeader = req.headers.get('authorization') || '';
-    // verify token and permission as per your auth system
-
     if(!rtdb) return addCORS(NextResponse.json({ ok:false, message:'RTDB not initialized' }, { status:500 }));
 
     const snap = await rtdb.ref(`/fcmTokens/${userId}`).once('value');
     const tokensObj = snap.val();
     if(!tokensObj) return addCORS(NextResponse.json({ ok:false, message:'no tokens' }, { status:404 }));
 
-    const tokenEntries = Object.entries(tokensObj).map(([key, val]) => ({ key, ...val }));
+    // tokenEntries keeps the RTDB child key and token value
+    const tokenEntries = Object.entries(tokensObj).map(([key, val]) => ({ key, token: val?.token || (typeof val === 'string' ? val : null), raw: val }));
     const tokens = tokenEntries.map(e => e.token).filter(Boolean);
     if(!tokens.length) return addCORS(NextResponse.json({ ok:false, message:'no tokens' }, { status:404 }));
 
@@ -41,7 +38,8 @@ export async function POST(req){
       tokens
     };
 
-    const response = await admin.messaging().sendMulticast(message);
+    // use messaging (from admin SDK v9 modular)
+    const response = await messaging.sendMulticast(message);
 
     // Collect invalid tokens to remove
     const toRemoveKeys = [];
