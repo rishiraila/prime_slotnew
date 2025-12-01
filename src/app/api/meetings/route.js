@@ -15,7 +15,10 @@ const DISABLE_AUTH = process.env.DISABLE_AUTH === 'true';
 function addCORS(res) {
   res.headers.set('Access-Control-Allow-Origin', '*');
   res.headers.set('Access-Control-Allow-Methods', 'GET,OPTIONS');
-  res.headers.set('Access-Control-Allow-Headers', 'Content-Type, Authorization');
+  res.headers.set(
+    'Access-Control-Allow-Headers',
+    'Content-Type, Authorization'
+  );
   return res;
 }
 
@@ -62,6 +65,32 @@ async function requireUser(req) {
   return { mode: 'admin', uid: decoded.uid, decoded };
 }
 
+// Robust approved check - supports multiple possible schema variants
+function isMeetingApproved(meetingObj) {
+  if (!meetingObj || typeof meetingObj !== 'object') return false;
+
+  // explicit boolean flags
+  if (meetingObj.approved === true) return true;
+  if (meetingObj.isApproved === true) return true;
+
+  // string status / approval fields
+  if (
+    typeof meetingObj.status === 'string' &&
+    meetingObj.status.toLowerCase() === 'approved'
+  )
+    return true;
+  if (
+    typeof meetingObj.approval === 'string' &&
+    meetingObj.approval.toLowerCase() === 'approved'
+  )
+    return true;
+
+  // presence of timestamp / approvedAt
+  if (meetingObj.approvedAt) return true;
+
+  return false;
+}
+
 export async function GET(req) {
   try {
     const user = await requireUser(req);
@@ -86,10 +115,16 @@ export async function GET(req) {
 
     const allMeetings = [];
 
-    // Helper to fetch and push meeting into allMeetings
-    const pushMeeting = (meetingId, eventIdForRecord, fullMeeting) => {
+    // Helper to fetch and push meeting into allMeetings if approved
+    const pushMeetingIfApproved = (meetingId, eventIdForRecord, fullMeeting) => {
+      if (!isMeetingApproved(fullMeeting)) return; // skip unapproved
       // normalize eventId for standalone to null
-      const normalizedEventId = eventIdForRecord === 'standalone' || eventIdForRecord === null || eventIdForRecord === 'undefined' ? null : eventIdForRecord;
+      const normalizedEventId =
+        eventIdForRecord === 'standalone' ||
+        eventIdForRecord === null ||
+        eventIdForRecord === 'undefined'
+          ? null
+          : eventIdForRecord;
       allMeetings.push({
         meetingId,
         eventId: normalizedEventId,
@@ -107,37 +142,57 @@ export async function GET(req) {
       if (eventIdKey === 'standalone') {
         for (const meetingId of Object.keys(eventMeetings)) {
           try {
-            const snap = await rtdb.ref(`/meetings_standalone/${meetingId}`).get();
-            if (snap.exists()) pushMeeting(meetingId, null, snap.val());
-            else {
+            // attempt to read from meetings_standalone
+            const snap = await rtdb
+              .ref(`/meetings_standalone/${meetingId}`)
+              .get();
+            if (snap.exists()) {
+              const val = snap.val();
+              pushMeetingIfApproved(meetingId, null, val);
+            } else {
               // fallback: maybe was stored under /meetings/<someEvent>/<meetingId>
               const fallbackSnap = await rtdb.ref(`/meetings/${meetingId}`).get();
-              if (fallbackSnap.exists()) pushMeeting(meetingId, null, fallbackSnap.val());
+              if (fallbackSnap.exists()) {
+                const val = fallbackSnap.val();
+                pushMeetingIfApproved(meetingId, null, val);
+              }
             }
           } catch (err) {
             // ignore single-item failure, continue
-            console.error('Error fetching standalone meeting', meetingId, err.message || err);
+            console.error(
+              'Error fetching standalone meeting',
+              meetingId,
+              err.message || err
+            );
           }
         }
         continue;
       }
 
-      // Case B: eventIdKey is some event id (normal grouped meetings)
-      // eventMeetings is an object of meetingId -> metadata
-      // But there are edge cases: sometimes there's an 'undefined' key or direct meetingId keys
+      // Case B: eventIdKey is 'undefined' --> treat as standalone fallback
       if (eventIdKey === 'undefined') {
-        // treat as standalone: attempt to fetch from meetings_standalone using inner IDs
         for (const meetingId of Object.keys(eventMeetings)) {
           try {
-            const snap = await rtdb.ref(`/meetings_standalone/${meetingId}`).get();
-            if (snap.exists()) pushMeeting(meetingId, null, snap.val());
-            else {
+            const snap = await rtdb
+              .ref(`/meetings_standalone/${meetingId}`)
+              .get();
+            if (snap.exists()) {
+              pushMeetingIfApproved(meetingId, null, snap.val());
+            } else {
               // fallback: try /meetings/undefined/meetingId (if present)
-              const fallbackSnap = await rtdb.ref(`/meetings/undefined/${meetingId}`).get();
-              if (fallbackSnap.exists()) pushMeeting(meetingId, null, fallbackSnap.val());
+              const fallbackSnap = await rtdb
+                .ref(`/meetings/undefined/${meetingId}`)
+                .get();
+              if (fallbackSnap.exists()) {
+                pushMeetingIfApproved(meetingId, null, fallbackSnap.val());
+              }
             }
           } catch (err) {
-            console.error('Error fetching undefined-group meeting', meetingId, err.message || err);
+            console.error(
+              'Error fetching undefined-group meeting',
+              meetingId,
+              err.message || err
+            );
           }
         }
         continue;
@@ -146,30 +201,55 @@ export async function GET(req) {
       // General case: eventIdKey is an event id
       for (const meetingId of Object.keys(eventMeetings)) {
         try {
+          // Quick-check: memberMeetings may contain metadata per meeting (to avoid extra reads)
+          const meta = eventMeetings[meetingId];
+          if (meta && typeof meta === 'object') {
+            // If metadata explicitly indicates not-approved, skip early
+            if (
+              meta.approved === false ||
+              meta.isApproved === false ||
+              (typeof meta.status === 'string' &&
+                meta.status.toLowerCase() === 'pending')
+            ) {
+              continue;
+            }
+            // If metadata explicitly indicates approved, we can try to fetch and push (still fetch to return full meeting)
+            // fallthrough to fetch actual meeting node
+          }
+
           // Try event-based meeting node first
-          const fullMeetingSnap = await rtdb.ref(`/meetings/${eventIdKey}/${meetingId}`).once('value');
+          const fullMeetingSnap = await rtdb
+            .ref(`/meetings/${eventIdKey}/${meetingId}`)
+            .once('value');
           if (fullMeetingSnap.exists()) {
-            pushMeeting(meetingId, eventIdKey, fullMeetingSnap.val());
+            pushMeetingIfApproved(meetingId, eventIdKey, fullMeetingSnap.val());
             continue;
           }
 
           // If not found under /meetings/{eventId}/{meetingId}, maybe it's stored as standalone
-          const standaloneSnap = await rtdb.ref(`/meetings_standalone/${meetingId}`).once('value');
+          const standaloneSnap = await rtdb
+            .ref(`/meetings_standalone/${meetingId}`)
+            .once('value');
           if (standaloneSnap.exists()) {
-            pushMeeting(meetingId, null, standaloneSnap.val());
+            pushMeetingIfApproved(meetingId, null, standaloneSnap.val());
             continue;
           }
 
           // Final fallback: sometimes stored under /meetings/{meetingId} (rare)
           const altSnap = await rtdb.ref(`/meetings/${meetingId}`).once('value');
           if (altSnap.exists()) {
-            pushMeeting(meetingId, null, altSnap.val());
+            pushMeetingIfApproved(meetingId, null, altSnap.val());
             continue;
           }
 
           // Not found anywhere — skip
         } catch (err) {
-          console.error('Error fetching meeting', eventIdKey, meetingId, err.message || err);
+          console.error(
+            'Error fetching meeting',
+            eventIdKey,
+            meetingId,
+            err.message || err
+          );
         }
       }
     }
